@@ -1,7 +1,6 @@
 /* Web live chat: mic 16kHz -> server, audio 24kHz <- server. */
 
 const log = document.getElementById("log");
-const avatarLog = document.getElementById("avatarLog");
 const tabAvatar = document.getElementById("tabAvatar");
 const tabText = document.getElementById("tabText");
 const statusEl = document.getElementById("status");
@@ -176,23 +175,13 @@ function addLine(who, text) {
   div.appendChild(document.createTextNode(text));
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;
-  if (avatarLog) {
-    const c = div.cloneNode(true);
-    avatarLog.appendChild(c);
-    avatarLog.parentElement.scrollTop = avatarLog.parentElement.scrollHeight;
-  }
   return div;
 }
 
-let modelLineClone = null;
 function appendModel(text) {
-  if (!modelLine) { modelLine = addLine("gemini", ""); modelLineClone = avatarLog ? avatarLog.lastElementChild : null; }
+  if (!modelLine) modelLine = addLine("gemini", "");
   modelLine.childNodes[1].textContent += text;
   log.scrollTop = log.scrollHeight;
-  if (modelLineClone && modelLineClone.childNodes[1]) {
-    modelLineClone.childNodes[1].textContent += text;
-    avatarLog.parentElement.scrollTop = avatarLog.parentElement.scrollHeight;
-  }
 }
 
 function addSources(items) {
@@ -234,7 +223,6 @@ function connect() {
       setAvatarMode("speaking");
     } else if (pkt.type === "turn_complete") {
       modelLine = null;
-      modelLineClone = null;
       setAvatarMode("idle");
     } else if (pkt.type === "sources") {
       addSources(pkt.items || []);

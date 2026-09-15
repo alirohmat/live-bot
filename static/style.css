@@ -29,5 +29,4 @@ body[data-tab="text"] #avatarPanel { display: none; }
 #avatar { width: min(78vw, 320px); height: auto; aspect-ratio: 440 / 520; border-radius: 20px; background: #16213a; border: 1px solid #334155; }
 .avatar-meta { display: flex; align-items: center; gap: 12px; }
 #avatarState { font-size: 15px; color: #7dd3fc; font-weight: 600; }
-#avatarLog { width: 100%; display: flex; flex-direction: column; gap: 8px; }
-#avatarLog .msg { max-width: 95%; }
+#avatarPanel { flex: 1; justify-content: center; }
