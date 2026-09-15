@@ -114,153 +114,336 @@ function drawSantri(now) {
     if (t > avatarBlinkAt + 0.12) avatarBlinkAt = t + 3 + Math.random() * 3;
   }
   ctx.clearRect(0, 0, W, H);
-  drawLibrary(ctx, W, H, t);
-  const vg = ctx.createRadialGradient(W/2, H*0.42, H*0.15, W/2, H*0.5, H*0.62);
-  vg.addColorStop(0, "rgba(0,0,0,0)");
-  vg.addColorStop(1, "rgba(4,8,18,0.35)");
-  ctx.fillStyle = vg;
-  ctx.fillRect(0, 0, W, H);
+  // Visualizer Aura / Pulse effect saat Listening or Speaking
+  if (avatarMode === "listening" || avatarMode === "speaking") {
+    const isListening = avatarMode === "listening";
+    const pulseCount = isListening ? 3 : 2;
+    const baseColor = isListening ? "34, 197, 94" : "56, 189, 248"; // Green vs Cyan
+    const energy = isListening ? 0.3 + Math.sin(t * 4) * 0.15 : avatarMouth * 0.8;
+
+    for (let i = pulseCount; i >= 1; i--) {
+      const radius = 100 + i * 25 + energy * 30;
+      const alpha = (0.25 / i) * (isListening ? (0.6 + Math.sin(t * 3) * 0.4) : Math.min(1, energy + 0.2));
+      const pulseGrad = ctx.createRadialGradient(W / 2, H / 2 - 20, radius * 0.4, W / 2, H / 2 - 20, radius);
+      pulseGrad.addColorStop(0, `rgba(${baseColor}, ${alpha * 0.8})`);
+      pulseGrad.addColorStop(0.7, `rgba(${baseColor}, ${alpha * 0.3})`);
+      pulseGrad.addColorStop(1, `rgba(${baseColor}, 0)`);
+
+      ctx.fillStyle = pulseGrad;
+      ctx.beginPath();
+      ctx.arc(W / 2, H / 2 - 20, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   ctx.save();
-  ctx.translate(W / 2 + sway, 128 + bob + breath * 0.4);
-  // badan: koko putih hangat + bayangan lembut
-  ctx.fillStyle = "#f8fafc";
+  ctx.translate(W / 2 + sway, 138 + bob + breath * 0.4);
+
+  // 1. Bayangan Jatuh (Drop Shadow bawah)
+  const shadowGrad = ctx.createRadialGradient(0, 160, 10, 0, 160, 90);
+  shadowGrad.addColorStop(0, "rgba(0, 0, 0, 0.35)");
+  shadowGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.fillStyle = shadowGrad;
   ctx.beginPath();
-  ctx.moveTo(-72, 132); ctx.lineTo(-52, 40); ctx.quadraticCurveTo(0, 24, 52, 40);
-  ctx.lineTo(72, 132); ctx.closePath(); ctx.fill();
-  ctx.strokeStyle = "#94a3b8"; ctx.lineWidth = 2; ctx.stroke();
-  // kerah koko + bayangan bawah kerah
-  ctx.fillStyle = "#eef2f7";
+  ctx.ellipse(0, 160, 85, 20, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 2. Badan & Baju Koko Premium (Gradien & Detail Jahitan)
+  const kokoGrad = ctx.createLinearGradient(-75, 40, 75, 160);
+  kokoGrad.addColorStop(0, "#ffffff");
+  kokoGrad.addColorStop(0.5, "#f1f5f9");
+  kokoGrad.addColorStop(1, "#cbd5e1");
+
+  ctx.fillStyle = kokoGrad;
   ctx.beginPath();
-  ctx.moveTo(-18, 36); ctx.lineTo(0, 56); ctx.lineTo(18, 36);
-  ctx.lineTo(10, 30); ctx.lineTo(0, 40); ctx.lineTo(-10, 30); ctx.closePath(); ctx.fill();
-  ctx.strokeStyle = "#94a3b8"; ctx.lineWidth = 1.5; ctx.stroke();
-  // kancing
-  ctx.fillStyle = "#64748b";
-  [66, 82, 98].forEach((y) => { ctx.beginPath(); ctx.arc(0, y, 3, 0, 7); ctx.fill(); });
-  // leher
-  ctx.fillStyle = "#dfa26e";
-  ctx.fillRect(-14, 14, 28, 26);
-  // kepala: kulit teduh, outline tipis senada
-  ctx.fillStyle = "#eebd85";
-  ctx.beginPath(); ctx.ellipse(0, -38, 46, 54, 0, 0, 7); ctx.fill();
-  ctx.strokeStyle = "#c98d54"; ctx.lineWidth = 1.5; ctx.stroke();
-  // pipi semburat tipis
-  ctx.fillStyle = "rgba(224,122,95,0.25)";
-  ctx.beginPath(); ctx.ellipse(-26, -22, 9, 6, 0, 0, 7); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(26, -22, 9, 6, 0, 0, 7); ctx.fill();
-  // telinga
-  ctx.fillStyle = "#eebd85";
-  ctx.beginPath(); ctx.ellipse(-46, -34, 7, 11, 0, 0, 7); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(46, -34, 7, 11, 0, 0, 7); ctx.fill();
-  // peci pas: duduk rendah, highlight + bayangan bawah
-  ctx.fillStyle = "rgba(0,0,0,0.18)";
-  ctx.beginPath(); ctx.ellipse(0, -72, 40, 6, 0, 0, 7); ctx.fill();
-  ctx.fillStyle = "#1c2433";
-  ctx.beginPath(); ctx.ellipse(0, -80, 40, 22, 0, Math.PI, 0); ctx.fill();
-  ctx.fillRect(-40, -82, 80, 10);
-  ctx.fillStyle = "#2b3648";
-  ctx.beginPath(); ctx.ellipse(-11, -91, 13, 4.5, -0.25, 0, 7); ctx.fill();
-  // alis (naik saat bicara)
-  ctx.strokeStyle = "#4a3527"; ctx.lineWidth = 2; ctx.lineCap = "round";
-  ctx.beginPath(); ctx.moveTo(-30, -52 - browLift); ctx.lineTo(-10, -54 - browLift); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(10, -54 - browLift); ctx.lineTo(30, -52 - browLift); ctx.stroke();
-  // mata (blink = garis)
-  if (blink) {
-    ctx.strokeStyle = "#1f2937"; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(-30, -40); ctx.lineTo(-12, -40); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(12, -40); ctx.lineTo(30, -40); ctx.stroke();
-  } else {
-    ctx.fillStyle = "#232a35";
-    ctx.beginPath(); ctx.arc(-22, -40, 5, 0, 7); ctx.fill();
-    ctx.beginPath(); ctx.arc(22, -40, 5, 0, 7); ctx.fill();
-    ctx.fillStyle = "#fff";
-    ctx.beginPath(); ctx.arc(-20.5, -41.5, 1.6, 0, 7); ctx.fill();
-    ctx.beginPath(); ctx.arc(23.5, -41.5, 1.6, 0, 7); ctx.fill();
-  }
-  // hidung
-  ctx.strokeStyle = "#b97a45"; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(0, -32); ctx.quadraticCurveTo(3, -22, -2, -18); ctx.stroke();
-  // mulut 3 bentuk: tutup / setengah / buka, gigi atas saat buka lebar
+  ctx.moveTo(-78, 160);
+  ctx.lineTo(-56, 38);
+  ctx.quadraticCurveTo(0, 22, 56, 38);
+  ctx.lineTo(78, 160);
+  ctx.closePath();
+  ctx.fill();
+
+  // Lipatan Baju Koko (Shading halus)
+  ctx.strokeStyle = "rgba(148, 163, 184, 0.4)";
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(-42, 60); ctx.quadraticCurveTo(-35, 110, -50, 160);
+  ctx.moveTo(42, 60); ctx.quadraticCurveTo(35, 110, 50, 160);
+  ctx.moveTo(0, 56); ctx.lineTo(0, 160);
+  ctx.stroke();
+
+  // Kerah Koko Berlapis (Mandarin Collar)
+  const collarGrad = ctx.createLinearGradient(-25, 25, 25, 55);
+  collarGrad.addColorStop(0, "#ffffff");
+  collarGrad.addColorStop(1, "#e2e8f0");
+  ctx.fillStyle = collarGrad;
+  ctx.beginPath();
+  ctx.moveTo(-22, 36);
+  ctx.lineTo(0, 58);
+  ctx.lineTo(22, 36);
+  ctx.lineTo(14, 28);
+  ctx.lineTo(0, 42);
+  ctx.lineTo(-14, 28);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "#cbd5e1";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Kancing Koko (Detail Emas / Mutiara Mewah)
+  [68, 88, 108, 128].forEach((y) => {
+    const buttonGrad = ctx.createRadialGradient(-1, y - 1, 0.5, 0, y, 4);
+    buttonGrad.addColorStop(0, "#fbbf24");
+    buttonGrad.addColorStop(0.7, "#d97706");
+    buttonGrad.addColorStop(1, "#78350f");
+    ctx.fillStyle = buttonGrad;
+    ctx.beginPath();
+    ctx.arc(0, y, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // 3. Leher dengan Bayangan Dagu
+  const neckGrad = ctx.createLinearGradient(0, 10, 0, 42);
+  neckGrad.addColorStop(0, "#c68a52"); // Bayangan dagu
+  neckGrad.addColorStop(0.35, "#f0be8b");
+  neckGrad.addColorStop(1, "#e5aa70");
+  ctx.fillStyle = neckGrad;
+  ctx.beginPath();
+  ctx.roundRect(-16, 12, 32, 30, 8);
+  ctx.fill();
+
+  // 4. Kepala & Bentuk Wajah (Kulit Halus dengan Shading Volume)
+  const faceGrad = ctx.createRadialGradient(0, -35, 10, 0, -30, 56);
+  faceGrad.addColorStop(0, "#ffe3c6");
+  faceGrad.addColorStop(0.7, "#f5c396");
+  faceGrad.addColorStop(1, "#e0a16d");
+
+  ctx.fillStyle = faceGrad;
+  ctx.beginPath();
+  ctx.ellipse(0, -36, 48, 56, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Outline tipis wajah
+  ctx.strokeStyle = "rgba(180, 110, 60, 0.3)";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // 5. Telinga & Detail Dalam
+  [-1, 1].forEach((side) => {
+    const earX = side * 48;
+    const earGrad = ctx.createRadialGradient(earX, -32, 2, earX, -32, 10);
+    earGrad.addColorStop(0, "#f5c396");
+    earGrad.addColorStop(1, "#d8935c");
+    ctx.fillStyle = earGrad;
+    ctx.beginPath();
+    ctx.ellipse(earX, -32, 8, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Dalam telinga
+    ctx.strokeStyle = "#c07e4a";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(earX - side * 2, -32, 4, 0, Math.PI * 2);
+    ctx.stroke();
+  });
+
+  // 6. Pipi Bersemu (Blush / Warm Glow)
+  const cheekGradLeft = ctx.createRadialGradient(-26, -18, 1, -26, -18, 14);
+  cheekGradLeft.addColorStop(0, "rgba(239, 114, 114, 0.35)");
+  cheekGradLeft.addColorStop(1, "rgba(239, 114, 114, 0)");
+  ctx.fillStyle = cheekGradLeft;
+  ctx.beginPath(); ctx.ellipse(-26, -18, 12, 8, 0, 0, Math.PI * 2); ctx.fill();
+
+  const cheekGradRight = ctx.createRadialGradient(26, -18, 1, 26, -18, 14);
+  cheekGradRight.addColorStop(0, "rgba(239, 114, 114, 0.35)");
+  cheekGradRight.addColorStop(1, "rgba(239, 114, 114, 0)");
+  ctx.fillStyle = cheekGradRight;
+  ctx.beginPath(); ctx.ellipse(26, -18, 12, 8, 0, 0, Math.PI * 2); ctx.fill();
+
+  // 7. Peci Hitam / Motif Islami Elegan (Peci Santri)
+  // Shadow Peci di dahi
+  ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
+  ctx.beginPath();
+  ctx.ellipse(0, -68, 43, 8, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Badan Peci
+  const peciGrad = ctx.createLinearGradient(-42, -96, 42, -66);
+  peciGrad.addColorStop(0, "#1e293b");
+  peciGrad.addColorStop(0.3, "#0f172a");
+  peciGrad.addColorStop(0.7, "#020617");
+  peciGrad.addColorStop(1, "#1e293b");
+
+  ctx.fillStyle = peciGrad;
+  ctx.beginPath();
+  ctx.ellipse(0, -78, 42, 23, 0, Math.PI, 0);
+  ctx.fillRect(-42, -80, 84, 12);
+  ctx.fill();
+
+  // Mahkota Atas Peci
+  ctx.fillStyle = "#020617";
+  ctx.beginPath();
+  ctx.ellipse(0, -80, 42, 10, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Motif Emboss/Emas Halus pada Peci
+  ctx.strokeStyle = "rgba(217, 119, 6, 0.4)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(-36, -72); ctx.quadraticCurveTo(0, -68, 36, -72);
+  ctx.stroke();
+
+  // 8. Alis Ekspresif (Responsive terhadap Mode)
+  const listeningBrow = avatarMode === "listening" ? -2 : 0;
+  ctx.strokeStyle = "#331e11";
+  ctx.lineWidth = 3;
+  ctx.lineCap = "round";
+
+  // Alis Kiri
+  ctx.beginPath();
+  ctx.moveTo(-32, -52 - browLift + listeningBrow);
+  ctx.quadraticCurveTo(-20, -57 - browLift, -10, -53 - browLift);
+  ctx.stroke();
+
+  // Alis Kanan
+  ctx.beginPath();
+  ctx.moveTo(10, -53 - browLift);
+  ctx.quadraticCurveTo(20, -57 - browLift, 32, -52 - browLift + listeningBrow);
+  ctx.stroke();
+
+  // 9. Mata Indah & Hidup (Iris Detail + Multi Highlights)
+  const eyeOffset = Math.sin(t * 0.8) * 1.2; // Gerakan mata sangat halus saat melihat sekeliling
+  [-22, 22].forEach((eyeX) => {
+    if (blink) {
+      // Mata Meram / Kedip Mulus
+      ctx.strokeStyle = "#27160c";
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.moveTo(eyeX - 10, -38);
+      ctx.quadraticCurveTo(eyeX, -34, eyeX + 10, -38);
+      ctx.stroke();
+    } else {
+      // Mata Putih (Sclera)
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.ellipse(eyeX, -38, 9, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(60, 30, 10, 0.2)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Iris Kecokelatan Warm Brown
+      const irisGrad = ctx.createRadialGradient(eyeX + eyeOffset, -38, 1, eyeX + eyeOffset, -38, 5.5);
+      irisGrad.addColorStop(0, "#1c1008");
+      irisGrad.addColorStop(0.6, "#4a2810");
+      irisGrad.addColorStop(1, "#1a0d05");
+
+      ctx.fillStyle = irisGrad;
+      ctx.beginPath();
+      ctx.arc(eyeX + eyeOffset, -38, 5.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Pupil
+      ctx.fillStyle = "#000000";
+      ctx.beginPath();
+      ctx.arc(eyeX + eyeOffset, -38, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Catchlight / Kilau Mata (Double Catchlight untuk efek Anime/3D)
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(eyeX + eyeOffset - 1.8, -40, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(eyeX + eyeOffset + 1.8, -36.5, 0.9, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Kelopak Mata Atas (Eyeliner)
+      ctx.strokeStyle = "#27160c";
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.arc(eyeX, -38, 9, Math.PI * 1.15, Math.PI * 1.85);
+      ctx.stroke();
+    }
+  });
+
+  // 10. Hidung dengan Dimensi Soft Shadow
+  ctx.strokeStyle = "#c8854c";
+  ctx.lineWidth = 2.2;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(-1, -31);
+  ctx.quadraticCurveTo(3, -21, -2, -18);
+  ctx.quadraticCurveTo(1, -16, 4, -18);
+  ctx.stroke();
+
+  // 11. Mulut Expressive & Fluid Lip-Sync Morphing
   const open = Math.min(1, Math.max(0, avatarMouth));
-  const mw = 8 + open * 5;
-  const mh = open < 0.25 ? 2.5 + open * 5 : open < 0.6 ? 3.7 + open * 9 : 6 + open * 9;
-  ctx.fillStyle = "#7c2d12";
-  ctx.beginPath(); ctx.ellipse(0, 0, mw, mh, 0, 0, 7); ctx.fill();
-  if (open > 0.45) {
-    ctx.fillStyle = "#fff";
-    ctx.beginPath(); ctx.ellipse(0, -mh + 3, mw * 0.7, 2.5, 0, 0, 7); ctx.fill();
+  ctx.save();
+  ctx.translate(0, -3);
+
+  if (open < 0.05) {
+    // Mulut Senyum Manis Mulus saat Idle/Tutup
+    ctx.strokeStyle = "#7c2d12";
+    ctx.lineWidth = 2.8;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(-10, -2);
+    ctx.quadraticCurveTo(0, 4, 10, -2);
+    ctx.stroke();
+
+    // Garis bibir bawah tipis
+    ctx.strokeStyle = "rgba(180, 83, 9, 0.35)";
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(-6, 3);
+    ctx.quadraticCurveTo(0, 6, 6, 3);
+    ctx.stroke();
+  } else {
+    // Mulut Terbuka Dinamis sesuai Level Suara
+    const mw = 9 + open * 8;
+    const mh = open * 14;
+
+    // Rongga Mulut Dalam
+    const mouthGrad = ctx.createLinearGradient(0, -mh / 2, 0, mh / 2);
+    mouthGrad.addColorStop(0, "#450a0a");
+    mouthGrad.addColorStop(0.5, "#7f1d1d");
+    mouthGrad.addColorStop(1, "#991b1b");
+
+    ctx.fillStyle = mouthGrad;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, mw, mh, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Gigi Atas Rapih
+    if (open > 0.25) {
+      ctx.fillStyle = "#f8fafc";
+      ctx.beginPath();
+      ctx.roundRect(-mw * 0.65, -mh * 0.85, mw * 1.3, Math.min(5, mh * 0.45), [0, 0, 3, 3]);
+      ctx.fill();
+    }
+
+    // Lidah Halus di Bawah
+    if (open > 0.4) {
+      ctx.fillStyle = "#f43f5e";
+      ctx.beginPath();
+      ctx.ellipse(0, mh * 0.45, mw * 0.55, mh * 0.35, 0, Math.PI, 0);
+      ctx.fill();
+    }
+
+    // Line Bibir Luar
+    ctx.strokeStyle = "#7c2d12";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, mw, mh, 0, 0, Math.PI * 2);
+    ctx.stroke();
   }
+  ctx.restore();
+
   ctx.restore();
 }
 
-/* Latar perpustakaan: dinding kayu, 2 rak buku, lampu gantung hangat. */
-function drawLibrary(ctx, W, H, t) {
-  if (!ctx.roundRect) {
-    ctx.roundRect = function (x, y, w, h) { this.rect(x, y, w, h); return this; };
-  }
-  // dinding kayu
-  const wall = ctx.createLinearGradient(0, 0, 0, H);
-  wall.addColorStop(0, "#2a2118");
-  wall.addColorStop(0.6, "#241c14");
-  wall.addColorStop(1, "#1a140e");
-  ctx.fillStyle = wall;
-  ctx.fillRect(0, 0, W, H);
-  // cahaya lampu hangat dari atas
-  const lampGlow = Math.sin(t * 1.2) * 0.02 + 0.5;
-  const glow = ctx.createRadialGradient(W/2, 70, 10, W/2, 70, 220);
-  glow.addColorStop(0, `rgba(255,196,110,${lampGlow})`);
-  glow.addColorStop(1, "rgba(255,196,110,0)");
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, W, H);
-  // rak kiri kanan
-  const shelf = (x0, w) => {
-    ctx.fillStyle = "#3b2c1e";
-    ctx.fillRect(x0, 90, w, 300);
-    ctx.fillStyle = "#2c2115";
-    ctx.fillRect(x0, 90, w, 8);
-    const rows = [150, 220, 290, 360];
-    const cols = ["#7f1d1d", "#14532d", "#1e40af", "#713f12", "#0f766e", "#6b21a8"];
-    rows.forEach((y, r) => {
-      let x = x0 + 8;
-      let i = r;
-      while (x < x0 + w - 14) {
-        const bw = 12 + ((i * 7) % 10);
-        const bh = 44 + ((i * 13) % 18);
-        ctx.fillStyle = cols[i % cols.length];
-        ctx.fillRect(x, y - bh + 40, bw, bh);
-        ctx.fillStyle = "rgba(255,255,255,0.18)";
-        ctx.fillRect(x + 2, y - bh + 44, 2, bh - 8);
-        x += bw + 3;
-        i += 1;
-      }
-      ctx.fillStyle = "#4a3826";
-      ctx.fillRect(x0, y + 40, w, 7);
-    });
-  };
-  shelf(14, 108);
-  shelf(W - 122, 108);
-  // jendela tengah atas: malam + bulan
-  ctx.fillStyle = "#0d1b2e";
-  ctx.beginPath();
-  ctx.roundRect(W/2 - 52, 96, 104, 120, 8);
-  ctx.fill();
-  ctx.fillStyle = "#f4e3b2";
-  ctx.beginPath(); ctx.arc(W/2 + 22, 130, 13, 0, 7); ctx.fill();
-  ctx.fillStyle = "#0d1b2e";
-  ctx.beginPath(); ctx.arc(W/2 + 16, 126, 11, 0, 7); ctx.fill();
-  ctx.strokeStyle = "#5a4632"; ctx.lineWidth = 6;
-  ctx.beginPath();
-  ctx.roundRect(W/2 - 52, 96, 104, 120, 8);
-  ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(W/2, 96); ctx.lineTo(W/2, 216); ctx.stroke();
-  // lampu gantung
-  ctx.strokeStyle = "#14100b"; ctx.lineWidth = 4;
-  ctx.beginPath(); ctx.moveTo(W/2, 0); ctx.lineTo(W/2, 44); ctx.stroke();
-  ctx.fillStyle = "#8a6b3f";
-  ctx.beginPath(); ctx.moveTo(W/2 - 30, 66); ctx.lineTo(W/2 + 30, 66); ctx.lineTo(W/2 + 18, 40); ctx.lineTo(W/2 - 18, 40); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = "#ffd9a0";
-  ctx.beginPath(); ctx.ellipse(W/2, 68, 16, 6, 0, 0, 7); ctx.fill();
-}
 
 function avatarLoop(now) {
   drawSantri(now || performance.now());
