@@ -1,0 +1,2 @@
+google-genai>=1.0.0
+websockets>=14.0
