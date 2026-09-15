@@ -103,7 +103,7 @@ async def index():
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
-async def gemini_to_browser(session, ws: WebSocket, client_id: str):
+async def gemini_to_browser(session, ws: WebSocket, client_id: str, voice_name: str = DEFAULT_VOICE):
     """Teruskan audio + transkripsi + sitasi Gemini ke browser.
 
     Loop per-turn karena SDK receive() berhenti tiap turn_complete.
@@ -292,7 +292,7 @@ async def ws_bridge(ws: WebSocket):
                     }
                 )
             recv_task = asyncio.create_task(
-                gemini_to_browser(session, ws, client_id)
+                gemini_to_browser(session, ws, client_id, voice_name)
             )
             try:
                 await browser_to_gemini(session, ws, client_id)
