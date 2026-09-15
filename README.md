@@ -14,7 +14,12 @@ export GEMINI_API_KEY='your-key'
 ```bash
 python live_text_demo.py
 python list_models.py
+# live chat audio dua arah (butuh mic + speaker)
+python live_audio_chat.py
 ```
+
+Di dalam `live_audio_chat.py`: ketik teks + Enter untuk kirim pesan,
+`/quit` untuk keluar. Di server tanpa mic/speaker otomatis mode teks.
 
 ## Notes
 
