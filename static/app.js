@@ -6,13 +6,27 @@ const form = document.getElementById("form");
 const input = document.getElementById("input");
 const micBtn = document.getElementById("micBtn");
 const stopBtn = document.getElementById("stopBtn");
+const searchBox = document.getElementById("searchBox");
 
-const wsProto = location.protocol === "https:" ? "wss" : "ws";
-const ws = new WebSocket(`${wsProto}://${location.host}/ws`);
+let clientId = localStorage.getItem("live_client_id");
+if (!clientId) {
+  clientId = "c-" + Math.random().toString(36).slice(2, 10);
+  localStorage.setItem("live_client_id", clientId);
+}
+let useSearch = localStorage.getItem("live_search") === "1";
+if (searchBox) {
+  searchBox.checked = useSearch;
+  searchBox.addEventListener("change", () => {
+    localStorage.setItem("live_search", searchBox.checked ? "1" : "0");
+    location.reload();
+  });
+}
 
+let ws = null;
+let reconnectTimer = null;
 let audioCtx = null;
 let micStream = null;
-let micWorklet = null;
+let micProc = null;
 let playCursor = 0;
 let modelLine = null;
 
@@ -34,29 +48,67 @@ function appendModel(text) {
   log.scrollTop = log.scrollHeight;
 }
 
-ws.onmessage = (ev) => {
-  const pkt = JSON.parse(ev.data);
-  if (pkt.type === "status") {
-    statusEl.textContent = pkt.text;
-  } else if (pkt.type === "transcript_in") {
-    addLine("kamu", pkt.text);
-  } else if (pkt.type === "transcript_out") {
-    appendModel(pkt.text);
-  } else if (pkt.type === "turn_complete") {
-    modelLine = null;
-  } else if (pkt.type === "audio") {
-    playPcm24k(pkt.data);
-  }
-};
+function addSources(items) {
+  if (!items.length) return;
+  const div = document.createElement("div");
+  div.className = "msg sources";
+  const b = document.createElement("b");
+  b.textContent = "Sumber: ";
+  div.appendChild(b);
+  items.slice(0, 5).forEach((s, i) => {
+    if (i > 0) div.appendChild(document.createTextNode(" · "));
+    const a = document.createElement("a");
+    a.href = s.url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = s.title || s.url;
+    div.appendChild(a);
+  });
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
 
-ws.onclose = () => {
-  statusEl.textContent = "Koneksi putus. Refresh untuk sambung lagi.";
-};
+function connect() {
+  const wsProto = location.protocol === "https:" ? "wss" : "ws";
+  const search = localStorage.getItem("live_search") === "1" ? "1" : "0";
+  ws = new WebSocket(
+    `${wsProto}://${location.host}/ws?client=${clientId}&search=${search}`
+  );
+
+  ws.onmessage = (ev) => {
+    const pkt = JSON.parse(ev.data);
+    if (pkt.type === "status") {
+      statusEl.textContent = pkt.text;
+    } else if (pkt.type === "transcript_in") {
+      addLine("kamu", pkt.text);
+    } else if (pkt.type === "transcript_out") {
+      appendModel(pkt.text);
+    } else if (pkt.type === "turn_complete") {
+      modelLine = null;
+    } else if (pkt.type === "sources") {
+      addSources(pkt.items || []);
+    } else if (pkt.type === "audio") {
+      playPcm24k(pkt.data);
+    }
+  };
+
+  ws.onclose = () => {
+    statusEl.textContent = "Koneksi putus. Menyambung ulang...";
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connect, 2000);
+  };
+
+  ws.onerror = () => {
+    try { ws.close(); } catch (e) {}
+  };
+}
+
+connect();
 
 form.addEventListener("submit", (e) => {
   e.preventDefault();
   const text = input.value.trim();
-  if (!text || ws.readyState !== WebSocket.OPEN) return;
+  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
   addLine("kamu", text);
   ws.send(JSON.stringify({ type: "text", text }));
   input.value = "";
@@ -100,32 +152,28 @@ micBtn.addEventListener("click", async () => {
     return;
   }
   const src = audioCtx.createMediaStreamSource(micStream);
-  // downsample ke 16kHz int16, kirim per 100ms
+  // downsample ke 16kHz int16
   const proc = audioCtx.createScriptProcessor(4096, 1, 1);
   const inRate = audioCtx.sampleRate;
-  let carry = [];
   proc.onaudioprocess = (ev) => {
     const ch = ev.inputBuffer.getChannelData(0);
-    // resample sederhana: ambil tiap ke-N
     const step = inRate / 16000;
-    let idx = 0;
     const out = [];
     for (let i = 0; i < ch.length; i += step) {
       const s = Math.max(-1, Math.min(1, ch[Math.floor(i)]));
       out.push(s < 0 ? s * 32768 : s * 32767);
     }
-    void idx; void carry;
     const pcm = new Int16Array(out);
     const bytes = new Uint8Array(pcm.buffer);
     let bin = "";
     for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-    if (ws.readyState === WebSocket.OPEN) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "audio", data: btoa(bin) }));
     }
   };
   src.connect(proc);
   proc.connect(audioCtx.destination);
-  micWorklet = proc;
+  micProc = proc;
   micBtn.textContent = "Mic Aktif";
   micBtn.disabled = true;
   statusEl.textContent = "Mic aktif. Bicara saja...";

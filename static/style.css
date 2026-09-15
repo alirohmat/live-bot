@@ -14,3 +14,6 @@ input { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #334155; b
 button { padding: 10px 14px; border-radius: 8px; border: 0; background: #22c55e; color: #052e16; font-weight: 700; cursor: pointer; }
 button:disabled { opacity: 0.4; cursor: default; }
 #stopBtn { background: #f59e0b; color: #451a03; }
+.search { display: flex; align-items: center; gap: 6px; font-size: 14px; color: #cbd5e1; }
+.msg.sources { background: #0b1220; border: 1px solid #334155; font-size: 13px; }
+.msg.sources a { color: #7dd3fc; }
