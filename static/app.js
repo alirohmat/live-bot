@@ -55,11 +55,15 @@ let micProc = null;
 let playCursor = 0;
 let modelLine = null;
 
-/* Avatar santri: canvas 2D, lip-sync dari RMS audio. */
+/* Avatar santri: canvas 2D, lip-sync ikut suara terdengar. */
 let avatarMode = "idle"; // idle | listening | speaking
-let avatarLevel = 0; // 0-1, diset dari RMS tiap chunk audio
+let avatarLevel = 0; // fallback saat analyser tak ada
 let avatarMouth = 0;
 let avatarBlinkAt = 0;
+let avatarAnalyser = null;
+let avatarWave = null;
+let avatarQueue = []; // {start, end, level} jadwal suara terdengar
+let avatarSpeakingUntil = 0;
 let avatarOn = localStorage.getItem("live_avatar") !== "0";
 const AVATAR_LABEL = { idle: "Santai", listening: "Mendengar", speaking: "Bicara" };
 
@@ -73,11 +77,36 @@ function drawSantri(now) {
   const ctx = avatarCanvas.getContext("2d");
   const W = avatarCanvas.width, H = avatarCanvas.height;
   const t = now / 1000;
-  // smoothing mulut + decay saat tak ada audio
-  avatarMouth += (avatarLevel - avatarMouth) * 0.45;
-  avatarLevel *= 0.82;
-  if (avatarLevel < 0.02) avatarLevel = 0;
-  const bob = Math.sin(t * 2.2) * 2 + (avatarMode === "speaking" ? Math.sin(t * 9) * 1.5 : 0);
+  // level ikut suara yang SEDANG terdengar: analyser live, fallback antre jadwal
+  let heard = 0;
+  if (avatarAnalyser && avatarWave) {
+    avatarAnalyser.getByteTimeDomainData(avatarWave);
+    let s = 0;
+    for (let i = 0; i < avatarWave.length; i += 2) { const v = (avatarWave[i] - 128) / 128; s += v * v; }
+    heard = Math.min(1, Math.sqrt(s / (avatarWave.length / 2)) * 4);
+  } else {
+    const nowS = audioCtx ? audioCtx.currentTime : t;
+    for (const q of avatarQueue) {
+      if (nowS >= q.start && nowS <= q.end) { heard = Math.max(heard, q.level); }
+    }
+    avatarQueue = avatarQueue.filter((q) => q.end > nowS - 0.1);
+  }
+  heard = Math.max(heard, avatarLevel);
+  avatarLevel *= 0.7;
+  // buka cepat, tutup lambat agar hidup
+  const k = heard > avatarMouth ? 0.6 : 0.25;
+  avatarMouth += (heard - avatarMouth) * k;
+  if (avatarMouth < 0.01) avatarMouth = 0;
+  // tahan speaking selama antre suara belum habis
+  if (avatarMode === "speaking" && performance.now() > avatarSpeakingUntil && heard < 0.05) {
+    setAvatarMode("idle");
+  }
+  const speaking = avatarMode === "speaking";
+  // napas dada + angguk hidup, beda fase idle vs speaking
+  const breath = Math.sin(t * 1.6) * 2.5;
+  const bob = Math.sin(t * 2.2) * 2 + (speaking ? Math.sin(t * 7.3) * 2.5 + Math.sin(t * 13.7) * 1 : Math.sin(t * 0.9) * 1.2);
+  const sway = Math.sin(t * 0.8) * 2;
+  const browLift = speaking ? Math.min(3, avatarMouth * 6) : 0;
   if (avatarBlinkAt === 0) avatarBlinkAt = t + 2 + Math.random() * 2;
   let blink = 0;
   if (t >= avatarBlinkAt) {
@@ -86,7 +115,7 @@ function drawSantri(now) {
   }
   ctx.clearRect(0, 0, W, H);
   ctx.save();
-  ctx.translate(W / 2, 128 + bob);
+  ctx.translate(W / 2 + sway, 128 + bob + breath * 0.4);
   // badan: baju koko putih
   ctx.fillStyle = "#f1f5f9";
   ctx.beginPath();
@@ -119,10 +148,10 @@ function drawSantri(now) {
   ctx.fillRect(-42, -86, 84, 10);
   ctx.fillStyle = "#1f2937";
   ctx.beginPath(); ctx.ellipse(-12, -96, 14, 5, -0.25, 0, 7); ctx.fill();
-  // alis
+  // alis (naik saat bicara)
   ctx.strokeStyle = "#3b2a1e"; ctx.lineWidth = 3; ctx.lineCap = "round";
-  ctx.beginPath(); ctx.moveTo(-30, -52); ctx.lineTo(-10, -54); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(10, -54); ctx.lineTo(30, -52); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-30, -52 - browLift); ctx.lineTo(-10, -54 - browLift); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(10, -54 - browLift); ctx.lineTo(30, -52 - browLift); ctx.stroke();
   // mata (blink = garis)
   if (blink) {
     ctx.strokeStyle = "#1f2937"; ctx.lineWidth = 3;
@@ -139,10 +168,16 @@ function drawSantri(now) {
   // hidung
   ctx.strokeStyle = "#b97a45"; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(0, -32); ctx.quadraticCurveTo(3, -22, -2, -18); ctx.stroke();
-  // mulut: buka 0-1 dari level audio
+  // mulut 3 bentuk: tutup / setengah / buka, gigi atas saat buka lebar
   const open = Math.min(1, Math.max(0, avatarMouth));
+  const mw = 8 + open * 5;
+  const mh = open < 0.25 ? 2 + open * 6 : open < 0.6 ? 3.5 + open * 10 : 6 + open * 9;
   ctx.fillStyle = "#7c2d12";
-  ctx.beginPath(); ctx.ellipse(0, 0, 8 + open * 4, 2 + open * 11, 0, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(0, 0, mw, mh, 0, 0, 7); ctx.fill();
+  if (open > 0.45) {
+    ctx.fillStyle = "#fff";
+    ctx.beginPath(); ctx.ellipse(0, -mh + 3, mw * 0.7, 2.5, 0, 0, 7); ctx.fill();
+  }
   ctx.restore();
 }
 
@@ -266,17 +301,28 @@ function playPcm24k(b64) {
   let sum = 0;
   for (let i = 0; i < samples.length; i++) { const v = samples[i] / 32768; sum += v * v; }
   const rms = Math.sqrt(sum / Math.max(1, samples.length));
-  avatarLevel = Math.min(1, rms * 4);
-  setAvatarMode("speaking");
   const out = audioCtx.createBuffer(1, samples.length, 24000);
   const ch = out.getChannelData(0);
   for (let i = 0; i < samples.length; i++) ch[i] = samples[i] / 32768;
   const src = audioCtx.createBufferSource();
   src.buffer = out;
-  src.connect(audioCtx.destination);
+  if (!avatarAnalyser) {
+    try {
+      avatarAnalyser = audioCtx.createAnalyser();
+      avatarAnalyser.fftSize = 1024;
+      avatarAnalyser.connect(audioCtx.destination);
+      avatarWave = new Uint8Array(avatarAnalyser.fftSize);
+    } catch (e) { avatarAnalyser = null; }
+  }
+  if (avatarAnalyser) src.connect(avatarAnalyser);
+  else src.connect(audioCtx.destination);
   const now = Math.max(audioCtx.currentTime, playCursor);
   src.start(now);
   playCursor = now + out.duration;
+  avatarQueue.push({ start: now, end: now + out.duration, level: Math.min(1, rms * 4) });
+  avatarLevel = Math.min(1, rms * 4);
+  avatarSpeakingUntil = performance.now() + out.duration * 1000 + 400;
+  setAvatarMode("speaking");
   stopBtn.disabled = false;
 }
 
@@ -286,6 +332,7 @@ stopBtn.addEventListener("click", () => {
   audioCtx = null;
   playCursor = 0;
   avatarLevel = 0;
+  avatarQueue = [];
   setAvatarMode("idle");
   stopBtn.disabled = true;
 });
