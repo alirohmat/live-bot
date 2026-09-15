@@ -102,28 +102,33 @@ function drawSantri(now) {
     setAvatarMode("idle");
   }
   const speaking = avatarMode === "speaking";
-  // napas dada + angguk hidup, beda fase idle vs speaking
-  const breath = Math.sin(t * 1.6) * 2.5;
-  const bob = Math.sin(t * 2.2) * 2 + (speaking ? Math.sin(t * 7.3) * 2.5 + Math.sin(t * 13.7) * 1 : Math.sin(t * 0.9) * 1.2);
-  const sway = Math.sin(t * 0.8) * 2;
+  // gerak kalem: napas halus, angguk kecil, beda fase idle vs speaking
+  const breath = Math.sin(t * 1.4) * 1.8;
+  const bob = Math.sin(t * 1.8) * 1.2 + (speaking ? Math.sin(t * 6.5) * 1.5 + Math.sin(t * 11.3) * 0.6 : Math.sin(t * 0.8) * 0.8);
+  const sway = Math.sin(t * 0.7) * 1;
   const browLift = speaking ? Math.min(3, avatarMouth * 6) : 0;
-  if (avatarBlinkAt === 0) avatarBlinkAt = t + 2 + Math.random() * 2;
+  if (avatarBlinkAt === 0) avatarBlinkAt = t + 3 + Math.random() * 3;
   let blink = 0;
   if (t >= avatarBlinkAt) {
     blink = 1;
-    if (t > avatarBlinkAt + 0.15) avatarBlinkAt = t + 2.5 + Math.random() * 2.5;
+    if (t > avatarBlinkAt + 0.12) avatarBlinkAt = t + 3 + Math.random() * 3;
   }
   ctx.clearRect(0, 0, W, H);
+  const vg = ctx.createRadialGradient(W/2, H*0.42, H*0.15, W/2, H*0.5, H*0.62);
+  vg.addColorStop(0, "rgba(0,0,0,0)");
+  vg.addColorStop(1, "rgba(4,8,18,0.35)");
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
   ctx.save();
   ctx.translate(W / 2 + sway, 128 + bob + breath * 0.4);
-  // badan: baju koko putih
-  ctx.fillStyle = "#f1f5f9";
+  // badan: koko putih hangat + bayangan lembut
+  ctx.fillStyle = "#f8fafc";
   ctx.beginPath();
   ctx.moveTo(-72, 132); ctx.lineTo(-52, 40); ctx.quadraticCurveTo(0, 24, 52, 40);
   ctx.lineTo(72, 132); ctx.closePath(); ctx.fill();
   ctx.strokeStyle = "#94a3b8"; ctx.lineWidth = 2; ctx.stroke();
-  // kerah koko
-  ctx.fillStyle = "#e2e8f0";
+  // kerah koko + bayangan bawah kerah
+  ctx.fillStyle = "#eef2f7";
   ctx.beginPath();
   ctx.moveTo(-18, 36); ctx.lineTo(0, 56); ctx.lineTo(18, 36);
   ctx.lineTo(10, 30); ctx.lineTo(0, 40); ctx.lineTo(-10, 30); ctx.closePath(); ctx.fill();
@@ -132,24 +137,30 @@ function drawSantri(now) {
   ctx.fillStyle = "#64748b";
   [66, 82, 98].forEach((y) => { ctx.beginPath(); ctx.arc(0, y, 3, 0, 7); ctx.fill(); });
   // leher
-  ctx.fillStyle = "#d9a06b";
+  ctx.fillStyle = "#dfa26e";
   ctx.fillRect(-14, 14, 28, 26);
-  // kepala
-  ctx.fillStyle = "#e8b07d";
+  // kepala: kulit teduh, outline tipis senada
+  ctx.fillStyle = "#eebd85";
   ctx.beginPath(); ctx.ellipse(0, -38, 46, 54, 0, 0, 7); ctx.fill();
-  ctx.strokeStyle = "#b97a45"; ctx.lineWidth = 2; ctx.stroke();
+  ctx.strokeStyle = "#c98d54"; ctx.lineWidth = 1.5; ctx.stroke();
+  // pipi semburat tipis
+  ctx.fillStyle = "rgba(224,122,95,0.25)";
+  ctx.beginPath(); ctx.ellipse(-26, -22, 9, 6, 0, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(26, -22, 9, 6, 0, 0, 7); ctx.fill();
   // telinga
-  ctx.fillStyle = "#e8b07d";
+  ctx.fillStyle = "#eebd85";
   ctx.beginPath(); ctx.ellipse(-46, -34, 7, 11, 0, 0, 7); ctx.fill();
   ctx.beginPath(); ctx.ellipse(46, -34, 7, 11, 0, 0, 7); ctx.fill();
-  // peci hitam
-  ctx.fillStyle = "#111827";
-  ctx.beginPath(); ctx.ellipse(0, -84, 42, 24, 0, Math.PI, 0); ctx.fill();
-  ctx.fillRect(-42, -86, 84, 10);
-  ctx.fillStyle = "#1f2937";
-  ctx.beginPath(); ctx.ellipse(-12, -96, 14, 5, -0.25, 0, 7); ctx.fill();
+  // peci pas: duduk rendah, highlight + bayangan bawah
+  ctx.fillStyle = "rgba(0,0,0,0.18)";
+  ctx.beginPath(); ctx.ellipse(0, -72, 40, 6, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = "#1c2433";
+  ctx.beginPath(); ctx.ellipse(0, -80, 40, 22, 0, Math.PI, 0); ctx.fill();
+  ctx.fillRect(-40, -82, 80, 10);
+  ctx.fillStyle = "#2b3648";
+  ctx.beginPath(); ctx.ellipse(-11, -91, 13, 4.5, -0.25, 0, 7); ctx.fill();
   // alis (naik saat bicara)
-  ctx.strokeStyle = "#3b2a1e"; ctx.lineWidth = 3; ctx.lineCap = "round";
+  ctx.strokeStyle = "#4a3527"; ctx.lineWidth = 2; ctx.lineCap = "round";
   ctx.beginPath(); ctx.moveTo(-30, -52 - browLift); ctx.lineTo(-10, -54 - browLift); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(10, -54 - browLift); ctx.lineTo(30, -52 - browLift); ctx.stroke();
   // mata (blink = garis)
@@ -158,12 +169,12 @@ function drawSantri(now) {
     ctx.beginPath(); ctx.moveTo(-30, -40); ctx.lineTo(-12, -40); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(12, -40); ctx.lineTo(30, -40); ctx.stroke();
   } else {
-    ctx.fillStyle = "#1f2937";
-    ctx.beginPath(); ctx.arc(-21, -40, 6, 0, 7); ctx.fill();
-    ctx.beginPath(); ctx.arc(21, -40, 6, 0, 7); ctx.fill();
+    ctx.fillStyle = "#232a35";
+    ctx.beginPath(); ctx.arc(-22, -40, 5, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(22, -40, 5, 0, 7); ctx.fill();
     ctx.fillStyle = "#fff";
-    ctx.beginPath(); ctx.arc(-19, -42, 2, 0, 7); ctx.fill();
-    ctx.beginPath(); ctx.arc(23, -42, 2, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(-20.5, -41.5, 1.6, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(23.5, -41.5, 1.6, 0, 7); ctx.fill();
   }
   // hidung
   ctx.strokeStyle = "#b97a45"; ctx.lineWidth = 2;
@@ -171,7 +182,7 @@ function drawSantri(now) {
   // mulut 3 bentuk: tutup / setengah / buka, gigi atas saat buka lebar
   const open = Math.min(1, Math.max(0, avatarMouth));
   const mw = 8 + open * 5;
-  const mh = open < 0.25 ? 2 + open * 6 : open < 0.6 ? 3.5 + open * 10 : 6 + open * 9;
+  const mh = open < 0.25 ? 2.5 + open * 5 : open < 0.6 ? 3.7 + open * 9 : 6 + open * 9;
   ctx.fillStyle = "#7c2d12";
   ctx.beginPath(); ctx.ellipse(0, 0, mw, mh, 0, 0, 7); ctx.fill();
   if (open > 0.45) {

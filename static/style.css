@@ -24,9 +24,9 @@ button:disabled { opacity: 0.4; cursor: default; }
 .tab.active { background: #22c55e; color: #052e16; }
 body[data-tab="avatar"] #log { display: none; }
 body[data-tab="text"] #avatarPanel { display: none; }
-#avatarPanel { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid #334155; background: #0b1220; overflow-y: auto; }
+#avatarPanel { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 16px; border-bottom: 1px solid #334155; background: radial-gradient(120% 100% at 50% 0%, #14312a 0%, #0b1f22 45%, #0b1220 100%); overflow-y: auto; }
 #avatarPanel.hidden { display: none; }
-#avatar { width: min(78vw, 320px); height: auto; aspect-ratio: 440 / 520; border-radius: 20px; background: #16213a; border: 1px solid #334155; }
+#avatar { width: min(78vw, 320px); height: auto; aspect-ratio: 440 / 520; border-radius: 20px; background: radial-gradient(90% 70% at 50% 38%, #20365a 0%, #16213a 60%, #0e1628 100%); border: 1px solid #3b4c63; box-shadow: 0 8px 30px rgba(0,0,0,0.35); }
 .avatar-meta { display: flex; align-items: center; gap: 12px; }
 #avatarState { font-size: 15px; color: #7dd3fc; font-weight: 600; }
 #avatarPanel { flex: 1; justify-content: center; }
