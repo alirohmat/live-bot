@@ -44,23 +44,36 @@ def build_config():
 
 
 async def receive_loop(session, audio_q):
-    """Terima pesan server: cetak transkripsi, antrekan audio."""
-    async for msg in session.receive():
-        sc = msg.server_content
-        if sc is None:
-            continue
-        if sc.input_transcription and sc.input_transcription.text:
-            print(f"\n[kamu] {sc.input_transcription.text}", flush=True)
-        if sc.output_transcription and sc.output_transcription.text:
-            print(sc.output_transcription.text, end="", flush=True)
-        model_turn = getattr(sc, "model_turn", None)
-        if model_turn and model_turn.parts:
-            for part in model_turn.parts:
-                blob = getattr(part, "inline_data", None)
-                if blob is not None and getattr(blob, "data", None):
-                    audio_q.put(bytes(blob.data))
-        if sc.turn_complete:
-            print(flush=True)
+    """Terima pesan server: cetak transkripsi, antrekan audio.
+
+    SDK `session.receive()` berhenti tiap `turn_complete`,
+    jadi loop luar dibuka per turn agar chat multi-turn.
+    Berhenti saat task di-cancel dari run() atau koneksi tutup.
+    """
+    import websockets
+
+    while True:
+        try:
+            async for msg in session.receive():
+                sc = msg.server_content
+                if sc is None:
+                    continue
+                if sc.input_transcription and sc.input_transcription.text:
+                    print(f"\n[kamu] {sc.input_transcription.text}", flush=True)
+                if sc.output_transcription and sc.output_transcription.text:
+                    print(sc.output_transcription.text, end="", flush=True)
+                model_turn = getattr(sc, "model_turn", None)
+                if model_turn and model_turn.parts:
+                    for part in model_turn.parts:
+                        blob = getattr(part, "inline_data", None)
+                        if blob is not None and getattr(blob, "data", None):
+                            audio_q.put(bytes(blob.data))
+                if sc.turn_complete:
+                    print(flush=True)
+                    break  # turn selesai, buka receive() untuk turn berikut
+        except websockets.ConnectionClosed:
+            print("\n[koneksi live terputus]", flush=True)
+            break
 
 
 def mic_thread(session, loop, stop_event):
@@ -117,28 +130,22 @@ def speaker_thread(audio_q, stop_event):
                 continue
 
 
-def keyboard_thread(session, loop, stop_event):
-    """Baca stdin: teks biasa = pesan, /quit = keluar."""
+async def keyboard_loop(session, loop, stop_event):
+    """Baca stdin tanpa blokir event loop. /quit = selesai."""
     print("Ketik pesan + Enter (atau /quit keluar):", flush=True)
-    for line in sys.stdin:
+    while not stop_event.is_set():
+        line = await asyncio.to_thread(sys.stdin.readline)
+        if not line:  # EOF (stdin piped habis)
+            stop_event.set()
+            break
         line = line.strip()
         if not line:
             continue
         if line == "/quit":
             stop_event.set()
-            # bangunkan receive_loop yang sedang menunggu
-            asyncio.run_coroutine_threadsafe(
-                session.send_client_content(
-                    turns={"parts": [{"text": "Terima kasih, sampai jumpa!"}]}
-                ),
-                loop,
-            )
             break
-        asyncio.run_coroutine_threadsafe(
-            session.send_client_content(
-                turns={"parts": [{"text": line}]}
-            ),
-            loop,
+        await session.send_client_content(
+            turns={"parts": [{"text": line}]}
         )
 
 
@@ -161,27 +168,29 @@ async def run():
             turns={"parts": [{"text": "Halo! Perkenalkan dirimu singkat."}]}
         )
 
-        threads = [
-            threading.Thread(
-                target=mic_thread, args=(session, loop, stop_event),
-                daemon=True,
-            ),
-            threading.Thread(
-                target=speaker_thread, args=(audio_q, stop_event),
-                daemon=True,
-            ),
-            threading.Thread(
-                target=keyboard_thread, args=(session, loop, stop_event),
-                daemon=True,
-            ),
-        ]
-        for t in threads:
-            t.start()
+        mic_t = threading.Thread(
+            target=mic_thread, args=(session, loop, stop_event),
+            daemon=True,
+        )
+        spk_t = threading.Thread(
+            target=speaker_thread, args=(audio_q, stop_event),
+            daemon=True,
+        )
+        mic_t.start()
+        spk_t.start()
 
+        recv_task = asyncio.create_task(receive_loop(session, audio_q))
+        kb_task = asyncio.create_task(keyboard_loop(session, loop, stop_event))
         try:
-            await receive_loop(session, audio_q)
+            # selesai saat user /quit atau stdin EOF
+            await kb_task
         finally:
             stop_event.set()
+            recv_task.cancel()
+            try:
+                await recv_task
+            except asyncio.CancelledError:
+                pass
 
 
 if __name__ == "__main__":
