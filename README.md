@@ -16,6 +16,9 @@ python live_text_demo.py
 python list_models.py
 # live chat audio dua arah (butuh mic + speaker)
 python live_audio_chat.py
+# versi web (browser mic + speaker, server bridge)
+python server.py
+# buka http://localhost:8000
 ```
 
 Di dalam `live_audio_chat.py`: ketik teks + Enter untuk kirim pesan,

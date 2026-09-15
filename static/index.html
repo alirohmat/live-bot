@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Gemini Live Chat</title>
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Gemini Live Chat</h1>
+    <p id="status">Menghubungkan...</p>
+  </header>
+
+  <main id="log" aria-live="polite"></main>
+
+  <footer>
+    <div class="row">
+      <button id="micBtn">Mulai Mic</button>
+      <button id="stopBtn" disabled>Hentikan Audio</button>
+    </div>
+    <form id="form">
+      <input id="input" type="text" placeholder="Ketik pesan + Enter..." autocomplete="off" />
+      <button type="submit">Kirim</button>
+    </form>
+  </footer>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
