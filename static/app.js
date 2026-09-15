@@ -1,6 +1,9 @@
 /* Web live chat: mic 16kHz -> server, audio 24kHz <- server. */
 
 const log = document.getElementById("log");
+const avatarLog = document.getElementById("avatarLog");
+const tabAvatar = document.getElementById("tabAvatar");
+const tabText = document.getElementById("tabText");
 const statusEl = document.getElementById("status");
 const form = document.getElementById("form");
 const input = document.getElementById("input");
@@ -34,6 +37,16 @@ if (searchBox) {
     location.reload();
   });
 }
+
+let activeTab = localStorage.getItem("live_tab") || "avatar";
+function applyTab() {
+  document.body.dataset.tab = activeTab;
+  if (tabAvatar) tabAvatar.classList.toggle("active", activeTab === "avatar");
+  if (tabText) tabText.classList.toggle("active", activeTab === "text");
+  if (activeTab === "avatar" && typeof applyAvatarToggle === "function") applyAvatarToggle();
+}
+if (tabAvatar) tabAvatar.addEventListener("click", () => { activeTab = "avatar"; localStorage.setItem("live_tab", "avatar"); applyTab(); });
+if (tabText) tabText.addEventListener("click", () => { activeTab = "text"; localStorage.setItem("live_tab", "text"); applyTab(); });
 
 let ws = null;
 let reconnectTimer = null;
@@ -163,13 +176,23 @@ function addLine(who, text) {
   div.appendChild(document.createTextNode(text));
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;
+  if (avatarLog) {
+    const c = div.cloneNode(true);
+    avatarLog.appendChild(c);
+    avatarLog.parentElement.scrollTop = avatarLog.parentElement.scrollHeight;
+  }
   return div;
 }
 
+let modelLineClone = null;
 function appendModel(text) {
-  if (!modelLine) modelLine = addLine("gemini", "");
+  if (!modelLine) { modelLine = addLine("gemini", ""); modelLineClone = avatarLog ? avatarLog.lastElementChild : null; }
   modelLine.childNodes[1].textContent += text;
   log.scrollTop = log.scrollHeight;
+  if (modelLineClone && modelLineClone.childNodes[1]) {
+    modelLineClone.childNodes[1].textContent += text;
+    avatarLog.parentElement.scrollTop = avatarLog.parentElement.scrollHeight;
+  }
 }
 
 function addSources(items) {
@@ -211,6 +234,7 @@ function connect() {
       setAvatarMode("speaking");
     } else if (pkt.type === "turn_complete") {
       modelLine = null;
+      modelLineClone = null;
       setAvatarMode("idle");
     } else if (pkt.type === "sources") {
       addSources(pkt.items || []);
@@ -232,6 +256,7 @@ function connect() {
   };
 }
 
+applyTab();
 connect();
 
 form.addEventListener("submit", (e) => {

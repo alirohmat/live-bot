@@ -13,12 +13,18 @@
     <p id="status">Menghubungkan...</p>
   </header>
 
+  <nav id="tabs">
+    <button id="tabAvatar" class="tab">Avatar</button>
+    <button id="tabText" class="tab">Teks</button>
+  </nav>
+
   <section id="avatarPanel">
-    <canvas id="avatar" width="220" height="260" aria-label="Avatar santri"></canvas>
+    <canvas id="avatar" width="440" height="520" aria-label="Avatar santri"></canvas>
     <div class="avatar-meta">
       <span id="avatarState">Santai</span>
       <label class="search"><input type="checkbox" id="avatarToggle" checked /> Avatar</label>
     </div>
+    <div id="avatarLog" aria-live="polite"></div>
   </section>
 
   <main id="log" aria-live="polite"></main>
