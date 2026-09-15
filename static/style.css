@@ -17,3 +17,4 @@ button:disabled { opacity: 0.4; cursor: default; }
 .search { display: flex; align-items: center; gap: 6px; font-size: 14px; color: #cbd5e1; }
 .msg.sources { background: #0b1220; border: 1px solid #334155; font-size: 13px; }
 .msg.sources a { color: #7dd3fc; }
+.search select { background: #0b1220; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; padding: 8px; }

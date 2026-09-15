@@ -31,3 +31,7 @@ Di dalam `live_audio_chat.py`: ketik teks + Enter untuk kirim pesan,
   - `gemini-2.5-flash-native-audio-preview-12-2025` works with `output_audio_transcription`.
   - `gemini-3.1-flash-live-preview` rejects `AUDIO` + transcription combo on this key.
 - `TEXT` modality rejected on native-audio Live models.
+
+## Suara
+
+Default pria `Charon`. Web: dropdown Suara di footer. CLI `live_audio_chat.py` / `live_text_demo.py`: ubah `VOICE_NAME`. Pilihan pria: `Puck`, `Charon`, `Fenrir`, `Orus`, `Algenib`, `Rasalgethi`, `Gacrux`, `Sadaltager`. Ganti voice = sesi Live baru.

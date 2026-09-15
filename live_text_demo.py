@@ -6,6 +6,7 @@ import os
 from google import genai
 
 LIVE_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
+VOICE_NAME = "Charon"  # pria: Puck, Charon, Fenrir, Orus, Algenib, Rasalgethi, Gacrux, Sadaltager
 
 
 async def run(prompt: str = "Say hello in one sentence."):
@@ -18,6 +19,7 @@ async def run(prompt: str = "Say hello in one sentence."):
         model=LIVE_MODEL,
         config={
             "response_modalities": ["AUDIO"],
+            "speech_config": {"voice_config": {"prebuilt_voice_config": {"voice_name": VOICE_NAME}}},
             "output_audio_transcription": {},
         },
     ) as session:
