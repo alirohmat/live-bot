@@ -8,6 +8,10 @@ const micBtn = document.getElementById("micBtn");
 const stopBtn = document.getElementById("stopBtn");
 const searchBox = document.getElementById("searchBox");
 const voiceBox = document.getElementById("voiceBox");
+const avatarCanvas = document.getElementById("avatar");
+const avatarStateEl = document.getElementById("avatarState");
+const avatarToggle = document.getElementById("avatarToggle");
+const avatarPanel = document.getElementById("avatarPanel");
 
 let clientId = localStorage.getItem("live_client_id");
 if (!clientId) {
@@ -38,6 +42,117 @@ let micStream = null;
 let micProc = null;
 let playCursor = 0;
 let modelLine = null;
+
+/* Avatar santri: canvas 2D, lip-sync dari RMS audio. */
+let avatarMode = "idle"; // idle | listening | speaking
+let avatarLevel = 0; // 0-1, diset dari RMS tiap chunk audio
+let avatarMouth = 0;
+let avatarBlinkAt = 0;
+let avatarOn = localStorage.getItem("live_avatar") !== "0";
+const AVATAR_LABEL = { idle: "Santai", listening: "Mendengar", speaking: "Bicara" };
+
+function setAvatarMode(m) {
+  avatarMode = m;
+  if (avatarStateEl) avatarStateEl.textContent = AVATAR_LABEL[m] || m;
+}
+
+function drawSantri(now) {
+  if (!avatarCanvas || !avatarOn) return;
+  const ctx = avatarCanvas.getContext("2d");
+  const W = avatarCanvas.width, H = avatarCanvas.height;
+  const t = now / 1000;
+  // smoothing mulut + decay saat tak ada audio
+  avatarMouth += (avatarLevel - avatarMouth) * 0.45;
+  avatarLevel *= 0.82;
+  if (avatarLevel < 0.02) avatarLevel = 0;
+  const bob = Math.sin(t * 2.2) * 2 + (avatarMode === "speaking" ? Math.sin(t * 9) * 1.5 : 0);
+  if (avatarBlinkAt === 0) avatarBlinkAt = t + 2 + Math.random() * 2;
+  let blink = 0;
+  if (t >= avatarBlinkAt) {
+    blink = 1;
+    if (t > avatarBlinkAt + 0.15) avatarBlinkAt = t + 2.5 + Math.random() * 2.5;
+  }
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(W / 2, 128 + bob);
+  // badan: baju koko putih
+  ctx.fillStyle = "#f1f5f9";
+  ctx.beginPath();
+  ctx.moveTo(-72, 132); ctx.lineTo(-52, 40); ctx.quadraticCurveTo(0, 24, 52, 40);
+  ctx.lineTo(72, 132); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = "#94a3b8"; ctx.lineWidth = 2; ctx.stroke();
+  // kerah koko
+  ctx.fillStyle = "#e2e8f0";
+  ctx.beginPath();
+  ctx.moveTo(-18, 36); ctx.lineTo(0, 56); ctx.lineTo(18, 36);
+  ctx.lineTo(10, 30); ctx.lineTo(0, 40); ctx.lineTo(-10, 30); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = "#94a3b8"; ctx.lineWidth = 1.5; ctx.stroke();
+  // kancing
+  ctx.fillStyle = "#64748b";
+  [66, 82, 98].forEach((y) => { ctx.beginPath(); ctx.arc(0, y, 3, 0, 7); ctx.fill(); });
+  // leher
+  ctx.fillStyle = "#d9a06b";
+  ctx.fillRect(-14, 14, 28, 26);
+  // kepala
+  ctx.fillStyle = "#e8b07d";
+  ctx.beginPath(); ctx.ellipse(0, -38, 46, 54, 0, 0, 7); ctx.fill();
+  ctx.strokeStyle = "#b97a45"; ctx.lineWidth = 2; ctx.stroke();
+  // telinga
+  ctx.fillStyle = "#e8b07d";
+  ctx.beginPath(); ctx.ellipse(-46, -34, 7, 11, 0, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(46, -34, 7, 11, 0, 0, 7); ctx.fill();
+  // peci hitam
+  ctx.fillStyle = "#111827";
+  ctx.beginPath(); ctx.ellipse(0, -84, 42, 24, 0, Math.PI, 0); ctx.fill();
+  ctx.fillRect(-42, -86, 84, 10);
+  ctx.fillStyle = "#1f2937";
+  ctx.beginPath(); ctx.ellipse(-12, -96, 14, 5, -0.25, 0, 7); ctx.fill();
+  // alis
+  ctx.strokeStyle = "#3b2a1e"; ctx.lineWidth = 3; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(-30, -52); ctx.lineTo(-10, -54); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(10, -54); ctx.lineTo(30, -52); ctx.stroke();
+  // mata (blink = garis)
+  if (blink) {
+    ctx.strokeStyle = "#1f2937"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(-30, -40); ctx.lineTo(-12, -40); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(12, -40); ctx.lineTo(30, -40); ctx.stroke();
+  } else {
+    ctx.fillStyle = "#1f2937";
+    ctx.beginPath(); ctx.arc(-21, -40, 6, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(21, -40, 6, 0, 7); ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.beginPath(); ctx.arc(-19, -42, 2, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(23, -42, 2, 0, 7); ctx.fill();
+  }
+  // hidung
+  ctx.strokeStyle = "#b97a45"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, -32); ctx.quadraticCurveTo(3, -22, -2, -18); ctx.stroke();
+  // mulut: buka 0-1 dari level audio
+  const open = Math.min(1, Math.max(0, avatarMouth));
+  ctx.fillStyle = "#7c2d12";
+  ctx.beginPath(); ctx.ellipse(0, 0, 8 + open * 4, 2 + open * 11, 0, 0, 7); ctx.fill();
+  ctx.restore();
+}
+
+function avatarLoop(now) {
+  drawSantri(now || performance.now());
+  if (avatarOn) requestAnimationFrame(avatarLoop);
+}
+
+function applyAvatarToggle() {
+  if (avatarToggle) avatarToggle.checked = avatarOn;
+  if (avatarPanel) avatarPanel.classList.toggle("hidden", !avatarOn);
+  if (avatarOn) requestAnimationFrame(avatarLoop);
+}
+if (avatarToggle) {
+  avatarToggle.checked = avatarOn;
+  avatarToggle.addEventListener("change", () => {
+    avatarOn = avatarToggle.checked;
+    localStorage.setItem("live_avatar", avatarOn ? "1" : "0");
+    applyAvatarToggle();
+  });
+}
+applyAvatarToggle();
 
 function addLine(who, text) {
   const div = document.createElement("div");
@@ -93,17 +208,21 @@ function connect() {
       addLine("kamu", pkt.text);
     } else if (pkt.type === "transcript_out") {
       appendModel(pkt.text);
+      setAvatarMode("speaking");
     } else if (pkt.type === "turn_complete") {
       modelLine = null;
+      setAvatarMode("idle");
     } else if (pkt.type === "sources") {
       addSources(pkt.items || []);
     } else if (pkt.type === "audio") {
+      setAvatarMode("speaking");
       playPcm24k(pkt.data);
     }
   };
 
   ws.onclose = () => {
     statusEl.textContent = "Koneksi putus. Menyambung ulang...";
+    setAvatarMode("idle");
     clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(connect, 2000);
   };
@@ -131,6 +250,11 @@ function playPcm24k(b64) {
   const view = new Uint8Array(buf);
   for (let i = 0; i < raw.length; i++) view[i] = raw.charCodeAt(i);
   const samples = new Int16Array(buf);
+  let sum = 0;
+  for (let i = 0; i < samples.length; i++) { const v = samples[i] / 32768; sum += v * v; }
+  const rms = Math.sqrt(sum / Math.max(1, samples.length));
+  avatarLevel = Math.min(1, rms * 4);
+  setAvatarMode("speaking");
   const out = audioCtx.createBuffer(1, samples.length, 24000);
   const ch = out.getChannelData(0);
   for (let i = 0; i < samples.length; i++) ch[i] = samples[i] / 32768;
@@ -148,6 +272,8 @@ stopBtn.addEventListener("click", () => {
   if (audioCtx) audioCtx.close();
   audioCtx = null;
   playCursor = 0;
+  avatarLevel = 0;
+  setAvatarMode("idle");
   stopBtn.disabled = true;
 });
 
@@ -186,5 +312,6 @@ micBtn.addEventListener("click", async () => {
   micProc = proc;
   micBtn.textContent = "Mic Aktif";
   micBtn.disabled = true;
+  setAvatarMode("listening");
   statusEl.textContent = "Mic aktif. Bicara saja...";
 });

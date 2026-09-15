@@ -35,3 +35,11 @@ Di dalam `live_audio_chat.py`: ketik teks + Enter untuk kirim pesan,
 ## Suara
 
 Default pria `Charon` (env `LIVE_VOICE`). Web: dropdown Suara di footer. CLI `live_audio_chat.py` / `live_text_demo.py`: set `LIVE_VOICE` atau ubah `VOICE_NAME`. Pilihan pria: `Puck`, `Charon`, `Fenrir`, `Orus`, `Algenib`, `Rasalgethi`, `Gacrux`, `Sadaltager`. Ganti voice = sesi Live baru.
+
+## Avatar santri
+
+Web tampilkan avatar kartun santri putra (peci hitam, baju koko putih) di atas log chat.
+Mulut gerak ikut level suara Gemini (RMS PCM 24kHz). Status: Santai (idle + kedip),
+Mendengar (mic aktif), Bicara (audio/transkrip model masuk). Toggle Avatar sembunyikan
+panel tanpa reload, pilihan tersimpan di `live_avatar`. Ini visual lokal canvas 2D,
+bukan video generatif Google. Server tak berubah.
