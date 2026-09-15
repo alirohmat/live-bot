@@ -7,11 +7,20 @@ const input = document.getElementById("input");
 const micBtn = document.getElementById("micBtn");
 const stopBtn = document.getElementById("stopBtn");
 const searchBox = document.getElementById("searchBox");
+const voiceBox = document.getElementById("voiceBox");
 
 let clientId = localStorage.getItem("live_client_id");
 if (!clientId) {
   clientId = "c-" + Math.random().toString(36).slice(2, 10);
   localStorage.setItem("live_client_id", clientId);
+}
+let useVoice = localStorage.getItem("live_voice") || "Charon";
+if (voiceBox) {
+  voiceBox.value = useVoice;
+  voiceBox.addEventListener("change", () => {
+    localStorage.setItem("live_voice", voiceBox.value);
+    location.reload();
+  });
 }
 let useSearch = localStorage.getItem("live_search") === "1";
 if (searchBox) {
@@ -71,8 +80,9 @@ function addSources(items) {
 function connect() {
   const wsProto = location.protocol === "https:" ? "wss" : "ws";
   const search = localStorage.getItem("live_search") === "1" ? "1" : "0";
+  const voice = localStorage.getItem("live_voice") || "Charon";
   ws = new WebSocket(
-    `${wsProto}://${location.host}/ws?client=${clientId}&search=${search}`
+    `${wsProto}://${location.host}/ws?client=${clientId}&search=${search}&voice=${voice}`
   );
 
   ws.onmessage = (ev) => {

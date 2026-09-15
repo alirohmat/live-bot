@@ -31,9 +31,13 @@ CHANNELS = 1
 FRAME_MS = 100  # 100ms per chunk mic
 
 
+VOICE_NAME = "Charon"  # suara pria: Puck, Charon, Fenrir, Orus, Algenib, Rasalgethi, Gacrux, Sadaltager
+
+
 def build_config():
     return {
         "response_modalities": ["AUDIO"],
+        "speech_config": {"voice_config": {"prebuilt_voice_config": {"voice_name": VOICE_NAME}}},
         "input_audio_transcription": {},
         "output_audio_transcription": {},
         "system_instruction": (

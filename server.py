@@ -44,9 +44,16 @@ MEMORY: dict = {}
 HANDLES: dict = {}
 
 
-def build_config(enable_search: bool = False, resume_handle=None):
+MALE_VOICES = {"Puck", "Charon", "Fenrir", "Orus", "Algenib", "Rasalgethi", "Gacrux", "Sadaltager"}
+DEFAULT_VOICE = "Charon"
+
+
+def build_config(enable_search: bool = False, resume_handle=None, voice_name: str = DEFAULT_VOICE):
+    if voice_name not in MALE_VOICES:
+        voice_name = DEFAULT_VOICE
     config = {
         "response_modalities": ["AUDIO"],
+        "speech_config": {"voice_config": {"prebuilt_voice_config": {"voice_name": voice_name}}},
         "input_audio_transcription": {},
         "output_audio_transcription": {},
         # Sesi audio tak terbatas: konteks lama diringkas otomatis.
@@ -109,6 +116,7 @@ async def gemini_to_browser(session, ws: WebSocket, client_id: str):
                     update, "new_handle", None
                 ):
                     HANDLES[client_id] = update.new_handle
+                    HANDLES[client_id + ":voice"] = voice_name
 
                 # GoAway: koneksi akan diputus, beri tahu browser.
                 if getattr(msg, "go_away", None) is not None:
@@ -215,6 +223,9 @@ async def ws_bridge(ws: WebSocket):
     params = ws.query_params
     client_id = params.get("client", "default")
     enable_search = params.get("search", "0") == "1"
+    voice_name = params.get("voice", DEFAULT_VOICE)
+    if voice_name not in MALE_VOICES:
+        voice_name = DEFAULT_VOICE
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         await ws.send_json(
@@ -224,14 +235,18 @@ async def ws_bridge(ws: WebSocket):
         return
     client = genai.Client(api_key=api_key)
     # Resume sesi sebelumnya bila handle masih valid (< 2 jam).
+    last_voice = HANDLES.get(client_id + ":voice")
     handle = HANDLES.get(client_id)
+    if last_voice is not None and last_voice != voice_name:
+        handle = None
     resumed = bool(handle)
     try:
         async with client.aio.live.connect(
             model=LIVE_MODEL,
-            config=build_config(enable_search, handle),
+            config=build_config(enable_search, handle, voice_name),
         ) as session:
             mode = " + Google Search" if enable_search else ""
+            mode += f" + suara {voice_name}"
             if resumed:
                 await ws.send_json(
                     {
