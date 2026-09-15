@@ -34,4 +34,4 @@ Di dalam `live_audio_chat.py`: ketik teks + Enter untuk kirim pesan,
 
 ## Suara
 
-Default pria `Charon`. Web: dropdown Suara di footer. CLI `live_audio_chat.py` / `live_text_demo.py`: ubah `VOICE_NAME`. Pilihan pria: `Puck`, `Charon`, `Fenrir`, `Orus`, `Algenib`, `Rasalgethi`, `Gacrux`, `Sadaltager`. Ganti voice = sesi Live baru.
+Default pria `Charon` (env `LIVE_VOICE`). Web: dropdown Suara di footer. CLI `live_audio_chat.py` / `live_text_demo.py`: set `LIVE_VOICE` atau ubah `VOICE_NAME`. Pilihan pria: `Puck`, `Charon`, `Fenrir`, `Orus`, `Algenib`, `Rasalgethi`, `Gacrux`, `Sadaltager`. Ganti voice = sesi Live baru.

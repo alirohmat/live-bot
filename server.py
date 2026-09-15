@@ -45,7 +45,9 @@ HANDLES: dict = {}
 
 
 MALE_VOICES = {"Puck", "Charon", "Fenrir", "Orus", "Algenib", "Rasalgethi", "Gacrux", "Sadaltager"}
-DEFAULT_VOICE = "Charon"
+DEFAULT_VOICE = os.environ.get("LIVE_VOICE", "Charon")
+if DEFAULT_VOICE not in MALE_VOICES:
+    DEFAULT_VOICE = "Charon"
 
 
 def build_config(enable_search: bool = False, resume_handle=None, voice_name: str = DEFAULT_VOICE):

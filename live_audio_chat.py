@@ -31,13 +31,17 @@ CHANNELS = 1
 FRAME_MS = 100  # 100ms per chunk mic
 
 
-VOICE_NAME = "Charon"  # suara pria: Puck, Charon, Fenrir, Orus, Algenib, Rasalgethi, Gacrux, Sadaltager
+MALE_VOICES = {"Puck", "Charon", "Fenrir", "Orus", "Algenib", "Rasalgethi", "Gacrux", "Sadaltager"}
+VOICE_NAME = os.environ.get("LIVE_VOICE", "Charon")  # suara pria
+if VOICE_NAME not in MALE_VOICES:
+    VOICE_NAME = "Charon"
 
 
 def build_config():
+    voice = VOICE_NAME if VOICE_NAME in MALE_VOICES else "Charon"
     return {
         "response_modalities": ["AUDIO"],
-        "speech_config": {"voice_config": {"prebuilt_voice_config": {"voice_name": VOICE_NAME}}},
+        "speech_config": {"voice_config": {"prebuilt_voice_config": {"voice_name": voice}}},
         "input_audio_transcription": {},
         "output_audio_transcription": {},
         "system_instruction": (
