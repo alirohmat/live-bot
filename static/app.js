@@ -114,7 +114,6 @@ function drawSantri(now) {
     if (t > avatarBlinkAt + 0.12) avatarBlinkAt = t + 3 + Math.random() * 3;
   }
   ctx.clearRect(0, 0, W, H);
-  drawLibrary(ctx, W, H, t);
   const vg = ctx.createRadialGradient(W/2, H*0.42, H*0.15, W/2, H*0.5, H*0.62);
   vg.addColorStop(0, "rgba(0,0,0,0)");
   vg.addColorStop(1, "rgba(4,8,18,0.35)");
@@ -191,75 +190,6 @@ function drawSantri(now) {
     ctx.beginPath(); ctx.ellipse(0, -mh + 3, mw * 0.7, 2.5, 0, 0, 7); ctx.fill();
   }
   ctx.restore();
-}
-
-/* Latar perpustakaan: dinding kayu, 2 rak buku, lampu gantung hangat. */
-function drawLibrary(ctx, W, H, t) {
-  if (!ctx.roundRect) {
-    ctx.roundRect = function (x, y, w, h) { this.rect(x, y, w, h); return this; };
-  }
-  // dinding kayu
-  const wall = ctx.createLinearGradient(0, 0, 0, H);
-  wall.addColorStop(0, "#2a2118");
-  wall.addColorStop(0.6, "#241c14");
-  wall.addColorStop(1, "#1a140e");
-  ctx.fillStyle = wall;
-  ctx.fillRect(0, 0, W, H);
-  // cahaya lampu hangat dari atas
-  const lampGlow = Math.sin(t * 1.2) * 0.02 + 0.5;
-  const glow = ctx.createRadialGradient(W/2, 70, 10, W/2, 70, 220);
-  glow.addColorStop(0, `rgba(255,196,110,${lampGlow})`);
-  glow.addColorStop(1, "rgba(255,196,110,0)");
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, W, H);
-  // rak kiri kanan
-  const shelf = (x0, w) => {
-    ctx.fillStyle = "#3b2c1e";
-    ctx.fillRect(x0, 90, w, 300);
-    ctx.fillStyle = "#2c2115";
-    ctx.fillRect(x0, 90, w, 8);
-    const rows = [150, 220, 290, 360];
-    const cols = ["#7f1d1d", "#14532d", "#1e40af", "#713f12", "#0f766e", "#6b21a8"];
-    rows.forEach((y, r) => {
-      let x = x0 + 8;
-      let i = r;
-      while (x < x0 + w - 14) {
-        const bw = 12 + ((i * 7) % 10);
-        const bh = 44 + ((i * 13) % 18);
-        ctx.fillStyle = cols[i % cols.length];
-        ctx.fillRect(x, y - bh + 40, bw, bh);
-        ctx.fillStyle = "rgba(255,255,255,0.18)";
-        ctx.fillRect(x + 2, y - bh + 44, 2, bh - 8);
-        x += bw + 3;
-        i += 1;
-      }
-      ctx.fillStyle = "#4a3826";
-      ctx.fillRect(x0, y + 40, w, 7);
-    });
-  };
-  shelf(14, 108);
-  shelf(W - 122, 108);
-  // jendela tengah atas: malam + bulan
-  ctx.fillStyle = "#0d1b2e";
-  ctx.beginPath();
-  ctx.roundRect(W/2 - 52, 96, 104, 120, 8);
-  ctx.fill();
-  ctx.fillStyle = "#f4e3b2";
-  ctx.beginPath(); ctx.arc(W/2 + 22, 130, 13, 0, 7); ctx.fill();
-  ctx.fillStyle = "#0d1b2e";
-  ctx.beginPath(); ctx.arc(W/2 + 16, 126, 11, 0, 7); ctx.fill();
-  ctx.strokeStyle = "#5a4632"; ctx.lineWidth = 6;
-  ctx.beginPath();
-  ctx.roundRect(W/2 - 52, 96, 104, 120, 8);
-  ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(W/2, 96); ctx.lineTo(W/2, 216); ctx.stroke();
-  // lampu gantung
-  ctx.strokeStyle = "#14100b"; ctx.lineWidth = 4;
-  ctx.beginPath(); ctx.moveTo(W/2, 0); ctx.lineTo(W/2, 44); ctx.stroke();
-  ctx.fillStyle = "#8a6b3f";
-  ctx.beginPath(); ctx.moveTo(W/2 - 30, 66); ctx.lineTo(W/2 + 30, 66); ctx.lineTo(W/2 + 18, 40); ctx.lineTo(W/2 - 18, 40); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = "#ffd9a0";
-  ctx.beginPath(); ctx.ellipse(W/2, 68, 16, 6, 0, 0, 7); ctx.fill();
 }
 
 function avatarLoop(now) {
