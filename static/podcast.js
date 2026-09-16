@@ -42,7 +42,7 @@ applyTab = function () {
 if (tabPodcast) tabPodcast.addEventListener("click", () => { activeTab = "podcast"; localStorage.setItem("live_tab", "podcast"); applyTab(); });
 
 /* Avatar netral modern: state lip-sync terpisah per avatar. */
-function podState() { return { mode: "idle", level: 0, mouth: 0, blinkAt: 0 }; }
+function podState() { return { mode: "idle", level: 0, mouth: 0, blinkAt: 0, gest: Math.random() * 10 }; }
 const hostSt = podState();
 const guestSt = podState();
 const hostCanvas = document.getElementById("hostCanvas");
@@ -63,20 +63,55 @@ function drawPodAvatar(canvas, st, female, now) {
   if (st.blinkAt === 0) st.blinkAt = t + 2 + Math.random() * 3;
   let blink = false;
   if (t >= st.blinkAt) { blink = true; if (t > st.blinkAt + 0.12) st.blinkAt = t + 2.5 + Math.random() * 3; }
-  const bob = Math.sin(t * 1.6) * 2 + (st.mode === "speaking" ? Math.sin(t * 7) * 2 : 0);
-  ctx.clearRect(0, 0, W, H);
-  ctx.save();
-  ctx.translate(W / 2, 150 + bob);
   const speaking = st.mode === "speaking";
-  ctx.strokeStyle = speaking ? (female ? "#f472b6" : "#38bdf8") : "rgba(100,116,139,0.5)";
-  ctx.lineWidth = speaking ? 5 : 2;
-  ctx.beginPath(); ctx.ellipse(0, 40, 120, 170, 0, 0, Math.PI * 2); ctx.stroke();
-  // bahu + baju
-  ctx.fillStyle = female ? "#78350f" : "#1e3a5f";
-  ctx.beginPath();
-  ctx.moveTo(-110, 320); ctx.lineTo(-70, 120);
-  ctx.quadraticCurveTo(0, 95, 70, 120); ctx.lineTo(110, 320);
-  ctx.closePath(); ctx.fill();
+  const e = speaking ? Math.min(1, st.mouth * 1.5 + st.level * 0.5) : 0; // energi gestur
+  st.gest += 0.02 + e * 0.12; // fase gestur jalan saat bicara, pelan saat diam
+  const bob = Math.sin(t * 1.6) * 2 + (speaking ? Math.sin(t * 7) * 2 : 0);
+  const lean = speaking ? Math.sin(st.gest * 0.9) * 4 : Math.sin(t * 0.9) * 1.5; // condong tubuh
+  ctx.clearRect(0, 0, W, H);
+  // kursi + meja podcast (avatar duduk)
+  ctx.fillStyle = "#1c2942";
+  ctx.beginPath(); ctx.roundRect(W / 2 - 95, 330, 190, 26, 10); ctx.fill(); // dudukan
+  ctx.fillRect(W / 2 - 80, 356, 18, 90); ctx.fillRect(W / 2 + 62, 356, 18, 90); // kaki kursi
+  ctx.fillStyle = "#0d1626";
+  ctx.beginPath(); ctx.roundRect(W / 2 - 150, 400, 300, 22, 8); ctx.fill(); // meja
+  ctx.fillStyle = "rgba(56,189,248,0.25)";
+  ctx.fillRect(W / 2 - 150, 400, 300, 3); // garis meja
+  // mic meja
+  ctx.strokeStyle = "#475569"; ctx.lineWidth = 5; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(W / 2 + 90, 400); ctx.lineTo(W / 2 + 55, 330); ctx.stroke();
+  ctx.fillStyle = "#0f172a";
+  ctx.beginPath(); ctx.arc(W / 2 + 52, 322, 13, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = speaking ? (female ? "#f472b6" : "#38bdf8") : "#334155"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(W / 2 + 52, 322, 13, 0, Math.PI * 2); ctx.stroke();
+  ctx.save();
+  ctx.translate(W / 2 + lean * 0.4, 150 + bob);
+  // lengan + tangan gestur (gerak saat bicara, istirahat di meja saat diam)
+  const armSwing = speaking ? Math.sin(st.gest * 2.1) * (8 + e * 26) : Math.sin(t * 1.1) * 2;
+  const armLift = speaking ? e * 34 : 4;
+  [-1, 1].forEach((side) => {
+    const ph = side === 1 ? 1.7 : 0; // beda fase kiri-kanan
+    const sw = side === 1 ? Math.sin(st.gest * 2.1 + ph) * (8 + e * 26) : armSwing;
+    const sx = side * 62, sy = 148; // bahu
+    const hx = side * (44 + Math.abs(sw) * 0.4), hy = 236 - armLift - (side === 1 ? Math.max(0, sw) * 0.5 : Math.max(0, -sw) * 0.3);
+    ctx.strokeStyle = female ? "#7c2d12" : "#16324f";
+    ctx.lineWidth = 20; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(sx, sy);
+    ctx.quadraticCurveTo(side * 78, 200 - armLift * 0.5, hx, hy);
+    ctx.stroke();
+    // telapak tangan
+    ctx.fillStyle = "#eab88f";
+    ctx.beginPath(); ctx.arc(hx, hy, 13, 0, Math.PI * 2); ctx.fill();
+    // jari: genggam saat diam, buka saat gestur kuat
+    const spread = speaking ? e : 0;
+    ctx.strokeStyle = "#c98a5a"; ctx.lineWidth = 4;
+    for (let f = -1; f <= 1; f++) {
+      ctx.beginPath();
+      ctx.moveTo(hx + f * 5, hy - 10);
+      ctx.lineTo(hx + f * (6 + spread * 5), hy - 18 - spread * 8);
+      ctx.stroke();
+    }
+  });
   // leher
   ctx.fillStyle = "#e8b088";
   ctx.beginPath(); ctx.roundRect(-20, 55, 40, 40, 10); ctx.fill();
@@ -241,7 +276,8 @@ if (podStart) podStart.addEventListener("click", () => {
       podStart.disabled = false;
       podStop.disabled = true;
       setPodSpeaker("none");
-      if (podExport && podPid) {
+      statusEl.textContent += " (Render video nonaktif sementara.)";
+      if (false && podExport && podPid) {
         fetch(`/export_status/${podPid}`).then((r) => r.json()).then((st) => {
           if (st && st.ready !== false && (st.turns === null || st.turns === undefined || st.turns > 0)) {
             podExport.href = `/export/${podPid}`;
