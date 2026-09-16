@@ -68,3 +68,4 @@ python server.py
 - Voice tidak bisa ganti mid-session, jadi 2 sesi paralel wajib.
   Default host `Charon`, guest `Kore` (env `LIVE_VOICE_HOST/GUEST`).
 - File export tersimpan di `exports/` (gitignored).
+- Stereo opsional: `PODCAST_STEREO=1` pisah host kiri / guest kanan.

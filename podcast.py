@@ -10,7 +10,6 @@ Export MP4 via ffmpeg (wav campur + frame PIL + subtitle).
 
 import asyncio
 import base64
-import io
 import os
 import subprocess
 import time
@@ -292,7 +291,7 @@ async def _timer(pod: PodcastSession, sessions: dict):
 
 
 async def _connect_slot(keys: list, slot_key: str, voice: str, role: str,
-                      enable_search: bool, label: str):
+                      enable_search: bool):
     """Buka 1 sesi Live, coba tiap key. Stale handle -> bersihkan, coba lagi."""
     last_err = None
     tried_stale_retry = False
@@ -336,13 +335,13 @@ async def start_podcast(pid: str, client_id: str, ws, topic: str, host_voice: st
 
     try:
         h_ctx, h_sess = await _connect_slot(
-            host_keys, f"{client_id}:host", host_voice, "host", enable_search, "host")
+            host_keys, f"{client_id}:host", host_voice, "host", enable_search)
     except Exception as e:
         PODCASTS.pop(pid, None)
         raise RuntimeError(f"Gagal buka sesi host: {e}")
     try:
         g_ctx, g_sess = await _connect_slot(
-            guest_keys, f"{client_id}:guest", guest_voice, "guest", enable_search, "guest")
+            guest_keys, f"{client_id}:guest", guest_voice, "guest", enable_search)
     except Exception as e:
         try:
             await h_ctx.__aexit__(None, None, None)
