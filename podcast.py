@@ -36,8 +36,23 @@ from server import (
 )
 
 PODCASTS: dict = {}
-EXPORT_DIR = os.environ.get("PODCAST_EXPORT_DIR", "exports")
-os.makedirs(EXPORT_DIR, exist_ok=True)
+
+
+def _export_dir() -> str:
+    """Dir export, fallback /tmp bila FS read-only (Vercel serverless)."""
+    import tempfile
+
+    d = os.environ.get("PODCAST_EXPORT_DIR", "exports")
+    try:
+        os.makedirs(d, exist_ok=True)
+        return d
+    except OSError:
+        fb = os.path.join(tempfile.gettempdir(), "podcast_exports")
+        os.makedirs(fb, exist_ok=True)
+        return fb
+
+
+EXPORT_DIR = _export_dir()
 
 
 def resample_24k_to_16k(pcm24: bytes) -> bytes:
@@ -417,8 +432,9 @@ async def stop_podcast(pid: str, reason: str = "Podcast dihentikan."):
 
 def render_export(pod: PodcastSession) -> str:
     """Render MP4 server-side: wav campur + frame PIL + ffmpeg mux. Return path."""
-    out_mp4 = os.path.join(EXPORT_DIR, f"{pod.pid}.mp4")
-    wav_path = os.path.join(EXPORT_DIR, f"{pod.pid}.wav")
+    export_dir = _export_dir()
+    out_mp4 = os.path.join(export_dir, f"{pod.pid}.mp4")
+    wav_path = os.path.join(export_dir, f"{pod.pid}.wav")
     host_src = pod.host_segs if getattr(pod, "host_segs", None) else bytes(pod.host_pcm)
     stereo = os.environ.get("PODCAST_STEREO", "0") == "1"
     mix_wav(wav_path, host_src, pod.guest_segs, stereo=stereo)
@@ -432,7 +448,7 @@ def render_export(pod: PodcastSession) -> str:
     W, H = 1280, 720
     fps = 10
     n = int(dur * fps)
-    frames_dir = os.path.join(EXPORT_DIR, f"{pod.pid}_frames")
+    frames_dir = os.path.join(export_dir, f"{pod.pid}_frames")
     os.makedirs(frames_dir, exist_ok=True)
     font = None
     if HAS_PIL:
