@@ -448,7 +448,7 @@ async def ws_podcast(ws: WebSocket):
                     mm = min(10.0, max(1.0, float(pkt.get("max_minutes", max_minutes))))
                 except Exception:
                     mm = max_minutes
-                pid = f"{client_id}-{int(_time.time())}"
+                pid = f"{client_id}-{int(_time.time() * 1000)}"
                 try:
                     await _pod.start_podcast(pid, client_id, ws, topic, hv, gv, mm, enable_search)
                 except Exception as e:

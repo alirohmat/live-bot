@@ -21,6 +21,12 @@ import queue
 import sys
 import threading
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
 from google import genai
 
 LIVE_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"

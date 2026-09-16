@@ -77,6 +77,9 @@ def mix_wav(path: str, host_pcm: bytes, guest_pcm: list, rate: int = 24000):
     return path
 
 
+MAX_TURNS = 60  # cap giliran ~10 mnt, pengaman kedua selain timer
+
+
 @dataclass
 class PodcastSession:
     pid: str
@@ -132,6 +135,10 @@ async def _relay_turn(pod: PodcastSession, src: str, sessions: dict):
         pod.guest_audio = bytearray()
         pod.guest_text = ""
     if not audio and not text:
+        return
+    # echo guard: turn hampa (audio <0.3 dtk + teks <3 kata) jangan direlay,
+    # itu gema/noise, bukan ucapan lawan
+    if len(audio) < 24000 * 2 * 2 // 10 * 3 and len(text.split()) < 3:
         return
     # kunci giliran ke lawan agar tidak rebutan
     pod.speaker = dst
@@ -215,9 +222,12 @@ async def _pump(pod: PodcastSession, role: str, session, sessions: dict):
                         turn_text = ""
                         turn_audio = bytearray()
                         t_start = time.time()
-                        # relay ke lawan bila masih ada waktu
-                        if pod.remaining() > 5:
+                        # relay ke lawan bila masih ada waktu dan belum cap
+                        if pod.remaining() > 5 and pod.turns < MAX_TURNS:
                             await _relay_turn(pod, role, sessions)
+                        elif pod.turns >= MAX_TURNS:
+                            await _send(pod.ws, {"type": "status", "text": "Cap 60 giliran tercapai, menutup."})
+                            asyncio.create_task(stop_podcast(pod.pid, reason="Cap giliran tercapai."))
                         break
             except Exception as e:
                 await _send(pod.ws, {"type": "status", "text": f"live {role} terputus: {e}"})
@@ -284,6 +294,12 @@ async def start_podcast(pid: str, client_id: str, ws, topic: str, host_voice: st
                          host_voice=host_voice, guest_voice=guest_voice,
                          max_minutes=max_minutes, enable_search=enable_search)
     PODCASTS[pid] = pod
+    if len(PODCASTS) > 5:
+        for old_pid, old_pod in list(PODCASTS.items()):
+            if old_pid != pid and not getattr(old_pod, "running", False):
+                PODCASTS.pop(old_pid, None)
+                if len(PODCASTS) <= 5:
+                    break
 
     try:
         h_ctx, h_sess = await _connect_slot(
