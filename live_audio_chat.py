@@ -31,14 +31,19 @@ CHANNELS = 1
 FRAME_MS = 100  # 100ms per chunk mic
 
 
-MALE_VOICES = {"Puck", "Charon", "Fenrir", "Orus", "Algenib", "Rasalgethi", "Gacrux", "Sadaltager"}
-VOICE_NAME = os.environ.get("LIVE_VOICE", "Charon")  # suara pria
-if VOICE_NAME not in MALE_VOICES:
+try:
+    from server import ALLOWED_VOICES
+except Exception:
+    ALLOWED_VOICES = {"Puck", "Charon", "Fenrir", "Orus", "Algenib", "Rasalgethi", "Gacrux", "Sadaltager",
+                      "Kore", "Aoede", "Leda", "Sulafat", "Zephyr"}
+MALE_VOICES = set(ALLOWED_VOICES)  # alias kompatibel
+VOICE_NAME = os.environ.get("LIVE_VOICE", "Charon")
+if VOICE_NAME not in ALLOWED_VOICES:
     VOICE_NAME = "Charon"
 
 
 def build_config():
-    voice = VOICE_NAME if VOICE_NAME in MALE_VOICES else "Charon"
+    voice = VOICE_NAME if VOICE_NAME in ALLOWED_VOICES else "Charon"
     return {
         "response_modalities": ["AUDIO"],
         "speech_config": {"voice_config": {"prebuilt_voice_config": {"voice_name": voice}}},

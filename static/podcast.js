@@ -236,9 +236,19 @@ if (podStart) podStart.addEventListener("click", () => {
       podStop.disabled = true;
       setPodSpeaker("none");
       if (podExport && podPid) {
-        podExport.href = `/export/${podPid}`;
-        podExport.hidden = false;
-        podExport.textContent = "Unduh MP4";
+        fetch(`/export_status/${podPid}`).then((r) => r.json()).then((st) => {
+          if (st && st.ready !== false && (st.turns === null || st.turns === undefined || st.turns > 0)) {
+            podExport.href = `/export/${podPid}`;
+            podExport.hidden = false;
+            podExport.textContent = "Unduh MP4";
+          } else {
+            statusEl.textContent = `Podcast selesai (${(st && st.turns) || 0} giliran). Belum cukup audio untuk MP4.`;
+          }
+        }).catch(() => {
+          podExport.href = `/export/${podPid}`;
+          podExport.hidden = false;
+          podExport.textContent = "Unduh MP4";
+        });
       }
     }
   };

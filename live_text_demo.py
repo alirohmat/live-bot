@@ -6,9 +6,14 @@ import os
 from google import genai
 
 LIVE_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
-MALE_VOICES = {"Puck", "Charon", "Fenrir", "Orus", "Algenib", "Rasalgethi", "Gacrux", "Sadaltager"}
-VOICE_NAME = os.environ.get("LIVE_VOICE", "Charon")  # pria
-if VOICE_NAME not in MALE_VOICES:
+try:
+    from server import ALLOWED_VOICES
+except Exception:
+    ALLOWED_VOICES = {"Puck", "Charon", "Fenrir", "Orus", "Algenib", "Rasalgethi", "Gacrux", "Sadaltager",
+                      "Kore", "Aoede", "Leda", "Sulafat", "Zephyr"}
+MALE_VOICES = set(ALLOWED_VOICES)  # alias kompatibel
+VOICE_NAME = os.environ.get("LIVE_VOICE", "Charon")
+if VOICE_NAME not in ALLOWED_VOICES:
     VOICE_NAME = "Charon"
 
 
@@ -22,7 +27,7 @@ async def run(prompt: str = "Say hello in one sentence."):
         model=LIVE_MODEL,
         config={
             "response_modalities": ["AUDIO"],
-            "speech_config": {"voice_config": {"prebuilt_voice_config": {"voice_name": VOICE_NAME if VOICE_NAME in MALE_VOICES else "Charon"}}},
+            "speech_config": {"voice_config": {"prebuilt_voice_config": {"voice_name": VOICE_NAME if VOICE_NAME in ALLOWED_VOICES else "Charon"}}},
             "output_audio_transcription": {},
         },
     ) as session:
