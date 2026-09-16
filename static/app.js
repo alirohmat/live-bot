@@ -28,16 +28,17 @@ if (voiceBox) {
     location.reload();
   });
 }
-let useSearch = localStorage.getItem("live_search") === "1";
+let useSearch = localStorage.getItem("live_search") !== "0";
 if (searchBox) {
   searchBox.checked = useSearch;
   searchBox.addEventListener("change", () => {
     localStorage.setItem("live_search", searchBox.checked ? "1" : "0");
-    location.reload();
+    const podSearch = document.getElementById("podSearchBox");
+    if (podSearch) podSearch.checked = searchBox.checked;
   });
 }
 
-let activeTab = localStorage.getItem("live_tab") || "avatar";
+let activeTab = localStorage.getItem("live_tab") || "podcast";
 function applyTab() {
   document.body.dataset.tab = activeTab;
   if (tabAvatar) tabAvatar.classList.toggle("active", activeTab === "avatar");
@@ -67,6 +68,12 @@ let avatarQueue = []; // {start, end, level} jadwal suara terdengar
 let avatarSpeakingUntil = 0;
 let avatarOn = localStorage.getItem("live_avatar") !== "0";
 const AVATAR_LABEL = { idle: "Santai", listening: "Mendengar", speaking: "Bicara" };
+
+/* High-Resolution Studio Portrait */
+const liveStudioImg = new Image();
+liveStudioImg.src = "/static/assets/images/host_rama.jpg";
+let liveStudioImgLoaded = false;
+liveStudioImg.onload = () => { liveStudioImgLoaded = true; };
 
 function setAvatarMode(m) {
   avatarMode = m;
@@ -135,6 +142,173 @@ function drawSantri(now) {
       ctx.arc(W / 2, H / 2 - 20, radius, 0, Math.PI * 2);
       ctx.fill();
     }
+  }
+
+  // If High-Resolution Portrait is loaded, render lifelike avatar
+  if (liveStudioImgLoaded) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(0, 0, W, H, 20);
+    ctx.clip();
+
+    // Studio Spotlight Backdrop
+    const bgGrad = ctx.createRadialGradient(W / 2, H * 0.4, 40, W / 2, H * 0.45, W * 0.75);
+    bgGrad.addColorStop(0, "#122a46");
+    bgGrad.addColorStop(0.6, "#0b192c");
+    bgGrad.addColorStop(1, "#050b14");
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, W, H);
+
+    // 2.5D Organic Motion
+    const breathY = Math.sin(t * 1.5) * 2.2;
+    const breathScale = 1 + Math.sin(t * 1.5) * 0.005;
+    const nodY = speaking
+      ? Math.sin(t * 5.2) * (avatarMouth * 4.0) + Math.sin(t * 1.8) * 1.2
+      : Math.sin(t * 0.8) * 0.8;
+    const headTilt = speaking
+      ? Math.sin(t * 1.6) * 0.022
+      : Math.sin(t * 0.7) * 0.008;
+
+    ctx.save();
+    ctx.translate(W / 2 + sway * 2.4, H / 2 + breathY + nodY);
+    ctx.rotate(headTilt);
+    ctx.scale(breathScale, breathScale);
+
+    // Draw Portrait
+    const pw = W + 40;
+    const ph = H + 45;
+    ctx.drawImage(liveStudioImg, -pw / 2, -ph / 2 - 12, pw, ph);
+
+    // Natural Eyelid Blinking
+    if (blink > 0.05) {
+      const eyePositions = [{ x: -42, y: -44 }, { x: 42, y: -44 }];
+      eyePositions.forEach((pos) => {
+        ctx.save();
+        ctx.translate(pos.x, pos.y);
+        const lidH = blink * 15;
+        const lidGrad = ctx.createLinearGradient(0, -10, 0, 10);
+        lidGrad.addColorStop(0, "rgba(215, 150, 115, 0.95)");
+        lidGrad.addColorStop(1, "rgba(180, 120, 90, 0.98)");
+        ctx.fillStyle = lidGrad;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 18, Math.max(2, lidH), 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = "rgba(30, 20, 15, 0.85)";
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.arc(0, lidH * 0.4, 18, 0.15 * Math.PI, 0.85 * Math.PI);
+        ctx.stroke();
+        ctx.restore();
+      });
+    }
+
+    // Dynamic Lip-Sync Mouth
+    const mouthY = 56;
+    const open = Math.min(1, Math.max(0, avatarMouth));
+    ctx.save();
+    ctx.translate(0, mouthY);
+
+    if (open > 0.04) {
+      const mw = 22 + open * 14;
+      const mh = open * 15;
+
+      ctx.fillStyle = "rgba(165, 80, 70, 0.25)";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, mw + 4, mh + 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#3b0c11";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, mw, mh, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "rgba(255, 252, 245, 0.88)";
+      ctx.beginPath();
+      ctx.roundRect(-mw * 0.55, -mh * 0.75, mw * 1.1, Math.min(6, mh * 0.75), 3);
+      ctx.fill();
+
+      ctx.fillStyle = "rgba(225, 110, 120, 0.85)";
+      ctx.beginPath();
+      ctx.ellipse(0, mh * 0.45, mw * 0.6, Math.max(2, mh * 0.45), 0, 0, Math.PI);
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(175, 90, 80, 0.85)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-mw - 2, -mh * 0.2);
+      ctx.quadraticCurveTo(-mw * 0.4, -mh * 0.8, 0, -mh * 0.6);
+      ctx.quadraticCurveTo(mw * 0.4, -mh * 0.8, mw + 2, -mh * 0.2);
+      ctx.stroke();
+
+      ctx.strokeStyle = "rgba(190, 105, 95, 0.75)";
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.moveTo(-mw - 1, mh * 0.1);
+      ctx.quadraticCurveTo(0, mh * 1.2, mw + 1, mh * 0.1);
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = "rgba(165, 80, 70, 0.6)";
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(-15, 0);
+      ctx.quadraticCurveTo(0, 4, 15, 0);
+      ctx.stroke();
+    }
+    ctx.restore();
+    ctx.restore(); // end portrait transform
+
+    // Broadcast Studio Microphone
+    const micX = W * 0.32;
+    const micY = H - 85;
+    ctx.save();
+    ctx.translate(micX, micY);
+
+    ctx.strokeStyle = "#334155";
+    ctx.lineWidth = 6;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(-50, 95);
+    ctx.lineTo(-16, 22);
+    ctx.stroke();
+
+    ctx.fillStyle = "#1e293b";
+    ctx.beginPath();
+    ctx.arc(-16, 20, 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.save();
+    ctx.rotate(0.22);
+    ctx.fillStyle = "#0f172a";
+    ctx.beginPath();
+    ctx.roundRect(-14, -28, 28, 48, 8);
+    ctx.fill();
+
+    ctx.fillStyle = "#1e293b";
+    ctx.beginPath();
+    ctx.roundRect(-13, -26, 26, 32, 6);
+    ctx.fill();
+
+    if (speaking) {
+      const bloomGrad = ctx.createRadialGradient(0, 10, 2, 0, 10, 18);
+      bloomGrad.addColorStop(0, "rgba(56, 189, 248, 0.95)");
+      bloomGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
+      ctx.fillStyle = bloomGrad;
+      ctx.beginPath();
+      ctx.arc(0, 10, 18, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#38bdf8";
+      ctx.fillRect(-14, 8, 28, 4);
+    } else {
+      ctx.fillStyle = "#475569";
+      ctx.fillRect(-14, 8, 28, 3);
+    }
+    ctx.restore();
+    ctx.restore();
+
+    ctx.restore(); // end clip
+    return;
   }
 
   ctx.save();
@@ -505,7 +679,7 @@ function addSources(items) {
 
 function connect() {
   const wsProto = location.protocol === "https:" ? "wss" : "ws";
-  const search = localStorage.getItem("live_search") === "1" ? "1" : "0";
+  const search = localStorage.getItem("live_search") !== "0" ? "1" : "0";
   const voice = localStorage.getItem("live_voice") || "Charon";
   ws = new WebSocket(
     `${wsProto}://${location.host}/ws?client=${clientId}&search=${search}&voice=${voice}`
@@ -564,11 +738,11 @@ function setLiveEnabled(on) {
 }
 
 applyTab();
-if ((localStorage.getItem("live_tab") || "avatar") !== "podcast") {
+if ((localStorage.getItem("live_tab") || "podcast") !== "podcast") {
   connect();
 } else {
   livePaused = true;
-  statusEl.textContent = "Mode podcast. Live dijeda.";
+  statusEl.textContent = "Siap memulai podcast 2 avatar. Masukkan topik lalu klik Mulai.";
 }
 
 form.addEventListener("submit", (e) => {

@@ -3,23 +3,123 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Gemini Live + Podcast</title>
+<title>Gemini 2 Avatar Podcast</title>
+<meta name="description" content="Podcast 2 Avatar interaktif dengan Gemini 2.5 Flash Native Audio Dialog" />
+<meta property="og:title" content="Gemini 2 Avatar Podcast" />
+<meta property="og:description" content="Podcast 2 Avatar interaktif dengan Gemini 2.5 Flash Native Audio Dialog" />
 <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <h1>Gemini Live + Podcast</h1>
-    <p id="status">Menghubungkan...</p>
+<div class="wrap" id="appWrapper">
+  <header id="mainHeader">
+    <div class="header-top">
+      <h1>🎙️ Gemini 2 Avatar Podcast</h1>
+      <span class="badge-live">Gemini 2.5 Native Audio</span>
+    </div>
+    <p id="status">Siap memulai podcast 2 avatar...</p>
   </header>
 
   <nav id="tabs">
-    <button id="tabAvatar" class="tab">Live</button>
-    <button id="tabPodcast" class="tab">Podcast</button>
-    <button id="tabText" class="tab">Teks</button>
+    <button id="tabPodcast" class="tab active">Studio Podcast 2 Avatar</button>
+    <button id="tabAvatar" class="tab">Live 1 Avatar</button>
+    <button id="tabText" class="tab">Transkrip Lengkap</button>
   </nav>
 
-  <section id="avatarPanel">
+  <section id="podcastPanel">
+    <div class="pod-head">
+      <div class="topic-input-row">
+        <input id="topic" type="text" placeholder="Ketik topik podcast di sini (contoh: Masa Depan AI & Robotika)..." autocomplete="off" />
+        <button id="podStart" class="btn-primary">▶ Mulai Podcast</button>
+        <button id="podStop" class="btn-danger" disabled>⏹ Stop</button>
+      </div>
+      <div class="topic-chips" id="topicChips">
+        <span class="chips-label">Saran Topik:</span>
+        <button type="button" class="chip" data-topic="Masa Depan AI & Robotika Humanoid">🤖 AI & Robotika</button>
+        <button type="button" class="chip" data-topic="Kopi, Begadang, dan Rahasia Produktivitas">☕ Kopi & Produktivitas</button>
+        <button type="button" class="chip" data-topic="Misteri Lubang Hitam & Kehidupan di Galaksi Lain">🌌 Misteri Luar Angkasa</button>
+        <button type="button" class="chip" data-topic="Kecerdasan Buatan vs Kreativitas Alami Manusia">🎨 AI vs Kreativitas</button>
+        <button type="button" class="chip" data-topic="Gaya Hidup Digital Nomad & Kerja Jarak Jauh">🏖️ Digital Nomad</button>
+      </div>
+      <div class="pod-controls-row">
+        <label class="voice-label">
+          <span>Host (Pria):</span>
+          <select id="hostVoice"></select>
+        </label>
+        <label class="voice-label">
+          <span>Guest (Wanita):</span>
+          <select id="guestVoice"></select>
+        </label>
+        <label class="pod-search-toggle" title="Aktifkan pencarian fakta Google Search saat obrolan podcast">
+          <input type="checkbox" id="podSearchBox" />
+          <span>🔍 Google Search Grounding</span>
+        </label>
+        <div class="pod-timer">
+          <span id="podClock">10:00</span>
+          <span id="podSpeaker" class="speaker-tag">siap</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="pod-stage">
+      <div class="pod-card" id="cardHost">
+        <div class="pod-card-header">
+          <div class="speaker-profile">
+            <span class="role-pill host-pill">🎙️ HOST</span>
+            <span class="speaker-name">Rama</span>
+          </div>
+          <div class="live-status-pill" id="hostStatusPill">
+            <span class="status-dot"></span>
+            <span class="status-label" id="hostStatusText">Standby</span>
+          </div>
+        </div>
+
+        <div class="canvas-container">
+          <canvas id="hostCanvas" width="440" height="540" aria-label="Host Avatar Rama"></canvas>
+          <div class="speech-overlay" id="hostSpeechOverlay" hidden>
+            <span class="speech-icon">💬</span>
+            <span class="speech-live-text" id="hostLiveText">...</span>
+          </div>
+        </div>
+
+        <div class="pod-card-footer">
+          <div class="audio-meter" id="hostAudioMeter">
+            <div class="meter-bar"><div class="meter-fill" id="hostMeterFill"></div></div>
+          </div>
+          <div class="speaker-voice-info">Suara: <strong id="hostVoiceDisplay">Charon</strong></div>
+        </div>
+      </div>
+
+      <div class="pod-card" id="cardGuest">
+        <div class="pod-card-header">
+          <div class="speaker-profile">
+            <span class="role-pill guest-pill">🎙️ GUEST</span>
+            <span class="speaker-name">Maya</span>
+          </div>
+          <div class="live-status-pill" id="guestStatusPill">
+            <span class="status-dot"></span>
+            <span class="status-label" id="guestStatusText">Standby</span>
+          </div>
+        </div>
+
+        <div class="canvas-container">
+          <canvas id="guestCanvas" width="440" height="540" aria-label="Guest Avatar Maya"></canvas>
+          <div class="speech-overlay" id="guestSpeechOverlay" hidden>
+            <span class="speech-icon">💬</span>
+            <span class="speech-live-text" id="guestLiveText">...</span>
+          </div>
+        </div>
+
+        <div class="pod-card-footer">
+          <div class="audio-meter" id="guestAudioMeter">
+            <div class="meter-bar"><div class="meter-fill" id="guestMeterFill"></div></div>
+          </div>
+          <div class="speaker-voice-info">Suara: <strong id="guestVoiceDisplay">Kore</strong></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="avatarPanel" class="hidden">
     <canvas id="avatar" width="440" height="520" aria-label="Avatar"></canvas>
     <div class="avatar-meta">
       <span id="avatarState">Santai</span>
@@ -27,41 +127,19 @@
     </div>
   </section>
 
-  <section id="podcastPanel" hidden>
-    <div class="pod-head">
-      <input id="topic" type="text" placeholder="Topik podcast..." />
-      <select id="hostVoice"></select>
-      <select id="guestVoice"></select>
-      <button id="podStart">Mulai</button>
-      <button id="podStop" disabled>Stop</button>
-      <a id="podExport" hidden>Unduh MP4 (nonaktif)</a>
-    </div>
-    <div class="pod-timer"><span id="podClock">10:00</span> <span id="podSpeaker">siap</span></div>
-    <div class="pod-stage">
-      <div class="pod-card" id="cardHost">
-        <canvas id="hostCanvas" width="440" height="520"></canvas>
-        <div class="pod-name">HOST</div>
-      </div>
-      <div class="pod-card" id="cardGuest">
-        <canvas id="guestCanvas" width="440" height="520"></canvas>
-        <div class="pod-name">GUEST</div>
-      </div>
-    </div>
-  </section>
-
   <main id="log" aria-live="polite"></main>
 
-  <footer>
+  <footer id="footerControls">
     <div class="row">
       <button id="micBtn">Mulai Mic</button>
       <button id="stopBtn" disabled>Hentikan Audio</button>
-      <label class="search"><input type="checkbox" id="searchBox" /> Search</label>
+      <label class="search"><input type="checkbox" id="searchBox" /> Search Grounding</label>
       <label class="search">Suara:
         <select id="voiceBox"></select>
       </label>
     </div>
     <form id="form">
-      <input id="input" type="text" placeholder="Ketik pesan + Enter..." autocomplete="off" />
+      <input id="input" type="text" placeholder="Ketik pesan untuk chat 1-on-1 + Enter..." autocomplete="off" />
       <button type="submit">Kirim</button>
     </form>
   </footer>

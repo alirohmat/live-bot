@@ -1,0 +1,26 @@
+{
+  "name": "gemini-2-avatar-podcast",
+  "version": "1.0.0",
+  "description": "Podcast 2 Avatar interaktif dengan Gemini Native Audio Dialog",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch server.ts",
+    "build": "tsc",
+    "lint": "tsc --noEmit",
+    "start": "node --import tsx/esm server.ts"
+  },
+  "dependencies": {
+    "@google/genai": "^2.22.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.2",
+    "@types/ws": "^8.5.13",
+    "jpeg-js": "^0.4.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

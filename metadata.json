@@ -1,0 +1,10 @@
+{
+  "name": "Gemini 2 Avatar Podcast",
+  "description": "Podcast 2 Avatar interaktif dengan Gemini 2.5 Flash Native Audio Dialog",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

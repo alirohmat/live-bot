@@ -24,8 +24,36 @@ const hostVoiceSel = document.getElementById("hostVoice");
 const guestVoiceSel = document.getElementById("guestVoice");
 let hostVoice = fillVoices(hostVoiceSel, VOICES_MALE.map((v) => [v, "pria"]), localStorage.getItem("pod_host_voice") || "Charon");
 let guestVoice = fillVoices(guestVoiceSel, VOICES_FEMALE.map((v) => [v, "wanita"]), localStorage.getItem("pod_guest_voice") || "Kore");
-if (hostVoiceSel) hostVoiceSel.addEventListener("change", () => { hostVoice = hostVoiceSel.value; localStorage.setItem("pod_host_voice", hostVoice); });
-if (guestVoiceSel) guestVoiceSel.addEventListener("change", () => { guestVoice = guestVoiceSel.value; localStorage.setItem("pod_guest_voice", guestVoice); });
+
+function syncVoiceDisplays() {
+  const hDisp = document.getElementById("hostVoiceDisplay");
+  const gDisp = document.getElementById("guestVoiceDisplay");
+  if (hDisp) hDisp.textContent = hostVoice;
+  if (gDisp) gDisp.textContent = guestVoice;
+}
+syncVoiceDisplays();
+
+if (hostVoiceSel) hostVoiceSel.addEventListener("change", () => {
+  hostVoice = hostVoiceSel.value;
+  localStorage.setItem("pod_host_voice", hostVoice);
+  syncVoiceDisplays();
+});
+if (guestVoiceSel) guestVoiceSel.addEventListener("change", () => {
+  guestVoice = guestVoiceSel.value;
+  localStorage.setItem("pod_guest_voice", guestVoice);
+  syncVoiceDisplays();
+});
+
+/* Google Search Grounding Toggle */
+const podSearchBox = document.getElementById("podSearchBox");
+if (podSearchBox) {
+  podSearchBox.checked = localStorage.getItem("live_search") !== "0";
+  podSearchBox.addEventListener("change", () => {
+    localStorage.setItem("live_search", podSearchBox.checked ? "1" : "0");
+    const liveSearch = document.getElementById("searchBox");
+    if (liveSearch) liveSearch.checked = podSearchBox.checked;
+  });
+}
 
 /* Tab podcast: bungkus applyTab bawaan. */
 const tabPodcast = document.getElementById("tabPodcast");
@@ -41,8 +69,30 @@ applyTab = function () {
 };
 if (tabPodcast) tabPodcast.addEventListener("click", () => { activeTab = "podcast"; localStorage.setItem("live_tab", "podcast"); applyTab(); });
 
-/* Avatar netral modern: state lip-sync terpisah per avatar. */
-function podState() { return { mode: "idle", level: 0, mouth: 0, blinkAt: 0, gest: Math.random() * 10 }; }
+/* Load High-Resolution Studio Portraits */
+const hostImg = new Image();
+hostImg.src = "/static/assets/images/host_rama.jpg";
+let hostImgLoaded = false;
+hostImg.onload = () => { hostImgLoaded = true; };
+
+const guestImg = new Image();
+guestImg.src = "/static/assets/images/guest_maya.jpg";
+let guestImgLoaded = false;
+guestImg.onload = () => { guestImgLoaded = true; };
+
+/* Avatar State */
+function podState() {
+  return {
+    mode: "idle",
+    level: 0,
+    mouth: 0,
+    blinkAt: 0,
+    gest: Math.random() * 10,
+    speakingUntil: 0,
+    speechText: "",
+    speechTimeout: null,
+  };
+}
 const hostSt = podState();
 const guestSt = podState();
 const hostCanvas = document.getElementById("hostCanvas");
@@ -51,152 +101,443 @@ const cardHost = document.getElementById("cardHost");
 const cardGuest = document.getElementById("cardGuest");
 const podSpeakerEl = document.getElementById("podSpeaker");
 
+const hostStatusText = document.getElementById("hostStatusText");
+const guestStatusText = document.getElementById("guestStatusText");
+const hostMeterFill = document.getElementById("hostMeterFill");
+const guestMeterFill = document.getElementById("guestMeterFill");
+const hostSpeechOverlay = document.getElementById("hostSpeechOverlay");
+const guestSpeechOverlay = document.getElementById("guestSpeechOverlay");
+const hostLiveText = document.getElementById("hostLiveText");
+const guestLiveText = document.getElementById("guestLiveText");
+const hostVoiceDisplay = document.getElementById("hostVoiceDisplay");
+const guestVoiceDisplay = document.getElementById("guestVoiceDisplay");
+
+/* Web Audio Analysers for Real-Time Lip Sync */
+let hostAnalyser = null;
+let guestAnalyser = null;
+let hostWaveData = null;
+let guestWaveData = null;
+
+function ensurePodAudio() {
+  if (typeof audioCtx === "undefined" || !audioCtx || audioCtx.state === "closed") {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === "suspended") {
+    audioCtx.resume();
+  }
+  if (!hostAnalyser) {
+    hostAnalyser = audioCtx.createAnalyser();
+    hostAnalyser.fftSize = 256;
+    hostAnalyser.smoothingTimeConstant = 0.65;
+    hostWaveData = new Uint8Array(hostAnalyser.frequencyBinCount);
+    hostAnalyser.connect(audioCtx.destination);
+  }
+  if (!guestAnalyser) {
+    guestAnalyser = audioCtx.createAnalyser();
+    guestAnalyser.fftSize = 256;
+    guestAnalyser.smoothingTimeConstant = 0.65;
+    guestWaveData = new Uint8Array(guestAnalyser.frequencyBinCount);
+    guestAnalyser.connect(audioCtx.destination);
+  }
+}
+
+/* Render Lifelike Studio Avatar */
 function drawPodAvatar(canvas, st, female, now) {
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
   const W = canvas.width, H = canvas.height;
   const t = now / 1000;
-  st.level *= 0.85;
-  const k = st.level > st.mouth ? 0.6 : 0.25;
-  st.mouth += (st.level - st.mouth) * k;
+
+  // Real-time audio energy extraction from AnalyserNode
+  const analyser = female ? guestAnalyser : hostAnalyser;
+  const waveData = female ? guestWaveData : hostWaveData;
+  let liveLevel = 0;
+  if (analyser && waveData && audioCtx) {
+    analyser.getByteFrequencyData(waveData);
+    let sum = 0;
+    for (let i = 0; i < 28; i++) {
+      sum += waveData[i];
+    }
+    liveLevel = Math.min(1, (sum / 28 / 128) * 1.85);
+  }
+
+  // Smooth continuous mouth tracking
+  if (liveLevel > 0.035) {
+    st.level = Math.max(st.level * 0.75, liveLevel);
+  } else {
+    st.level *= 0.82;
+  }
+  if (st.level < 0.008) st.level = 0;
+
+  const mouthTarget = st.level;
+  const k = mouthTarget > st.mouth ? 0.5 : 0.22;
+  st.mouth += (mouthTarget - st.mouth) * k;
   if (st.mouth < 0.01) st.mouth = 0;
-  if (st.blinkAt === 0) st.blinkAt = t + 2 + Math.random() * 3;
-  let blink = false;
-  if (t >= st.blinkAt) { blink = true; if (t > st.blinkAt + 0.12) st.blinkAt = t + 2.5 + Math.random() * 3; }
-  const speaking = st.mode === "speaking";
-  const e = speaking ? Math.min(1, st.mouth * 1.5 + st.level * 0.5) : 0; // energi gestur
-  st.gest += 0.02 + e * 0.12; // fase gestur jalan saat bicara, pelan saat diam
-  const bob = Math.sin(t * 1.6) * 2 + (speaking ? Math.sin(t * 7) * 2 : 0);
-  const lean = speaking ? Math.sin(st.gest * 0.9) * 4 : Math.sin(t * 0.9) * 1.5; // condong tubuh
+
+  // Speaking detection
+  const isAudioPlaying = audioCtx ? (audioCtx.currentTime * 1000 < st.speakingUntil) : false;
+  const speaking = st.mode === "speaking" && (st.mouth > 0.02 || isAudioPlaying);
+
+  // Natural Blinking Calculation
+  if (st.blinkAt === 0) st.blinkAt = t + 2.8 + Math.random() * 2.5;
+  let blink = 0;
+  if (t >= st.blinkAt) {
+    const elapsed = t - st.blinkAt;
+    if (elapsed < 0.07) {
+      blink = elapsed / 0.07;
+    } else if (elapsed < 0.14) {
+      blink = 1 - (elapsed - 0.07) / 0.07;
+    } else {
+      blink = 0;
+      st.blinkAt = t + 3.0 + Math.random() * 3.5;
+    }
+  }
+
+  // Conversational 2.5D Movements
+  const breathY = Math.sin(t * 1.5) * 2.2;
+  const breathScale = 1 + Math.sin(t * 1.5) * 0.005;
+
+  let swayX = Math.sin(t * 0.85) * (speaking ? 2.4 : 0.9);
+  let nodY = speaking
+    ? Math.sin(t * 5.2) * (st.mouth * 4.0) + Math.sin(t * 1.8) * 1.2
+    : Math.sin(t * 0.8) * 0.8;
+  const headTilt = speaking
+    ? Math.sin(t * 1.6) * 0.022
+    : Math.sin(t * 0.7) * 0.008;
+
+  // Attentive listening nod when the other speaker is talking
+  const otherSt = female ? hostSt : guestSt;
+  const isListening = !speaking && otherSt.mode === "speaking";
+  if (isListening && Math.sin(t * 1.3) > 0.82) {
+    nodY += Math.sin(t * 6.5) * 2.2;
+  }
+
+  // Clear canvas
   ctx.clearRect(0, 0, W, H);
-  // kursi + meja podcast (avatar duduk)
-  ctx.fillStyle = "#1c2942";
-  ctx.beginPath(); ctx.roundRect(W / 2 - 95, 330, 190, 26, 10); ctx.fill(); // dudukan
-  ctx.fillRect(W / 2 - 80, 356, 18, 90); ctx.fillRect(W / 2 + 62, 356, 18, 90); // kaki kursi
-  ctx.fillStyle = "#0d1626";
-  ctx.beginPath(); ctx.roundRect(W / 2 - 150, 400, 300, 22, 8); ctx.fill(); // meja
-  ctx.fillStyle = "rgba(56,189,248,0.25)";
-  ctx.fillRect(W / 2 - 150, 400, 300, 3); // garis meja
-  // mic meja
-  ctx.strokeStyle = "#475569"; ctx.lineWidth = 5; ctx.lineCap = "round";
-  ctx.beginPath(); ctx.moveTo(W / 2 + 90, 400); ctx.lineTo(W / 2 + 55, 330); ctx.stroke();
-  ctx.fillStyle = "#0f172a";
-  ctx.beginPath(); ctx.arc(W / 2 + 52, 322, 13, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = speaking ? (female ? "#f472b6" : "#38bdf8") : "#334155"; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(W / 2 + 52, 322, 13, 0, Math.PI * 2); ctx.stroke();
+
+  // Clip to rounded container
   ctx.save();
-  ctx.translate(W / 2 + lean * 0.4, 150 + bob);
-  // lengan + tangan gestur (gerak saat bicara, istirahat di meja saat diam)
-  const armSwing = speaking ? Math.sin(st.gest * 2.1) * (8 + e * 26) : Math.sin(t * 1.1) * 2;
-  const armLift = speaking ? e * 34 : 4;
-  [-1, 1].forEach((side) => {
-    const ph = side === 1 ? 1.7 : 0; // beda fase kiri-kanan
-    const sw = side === 1 ? Math.sin(st.gest * 2.1 + ph) * (8 + e * 26) : armSwing;
-    const sx = side * 62, sy = 148; // bahu
-    const hx = side * (44 + Math.abs(sw) * 0.4), hy = 236 - armLift - (side === 1 ? Math.max(0, sw) * 0.5 : Math.max(0, -sw) * 0.3);
-    ctx.strokeStyle = female ? "#7c2d12" : "#16324f";
-    ctx.lineWidth = 20; ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(sx, sy);
-    ctx.quadraticCurveTo(side * 78, 200 - armLift * 0.5, hx, hy);
-    ctx.stroke();
-    // telapak tangan
-    ctx.fillStyle = "#eab88f";
-    ctx.beginPath(); ctx.arc(hx, hy, 13, 0, Math.PI * 2); ctx.fill();
-    // jari: genggam saat diam, buka saat gestur kuat
-    const spread = speaking ? e : 0;
-    ctx.strokeStyle = "#c98a5a"; ctx.lineWidth = 4;
-    for (let f = -1; f <= 1; f++) {
+  ctx.beginPath();
+  ctx.roundRect(0, 0, W, H, 16);
+  ctx.clip();
+
+  // Studio Gradient Backdrop
+  const bgGrad = ctx.createRadialGradient(W / 2, H * 0.4, 40, W / 2, H * 0.45, W * 0.75);
+  if (female) {
+    bgGrad.addColorStop(0, "#2c153b");
+    bgGrad.addColorStop(0.6, "#180d22");
+    bgGrad.addColorStop(1, "#0a050f");
+  } else {
+    bgGrad.addColorStop(0, "#122a46");
+    bgGrad.addColorStop(0.6, "#0b192c");
+    bgGrad.addColorStop(1, "#050b14");
+  }
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Acoustic Wave Aura when Speaking
+  if (speaking && st.mouth > 0.03) {
+    const auraColor = female ? "244, 114, 182" : "56, 189, 248";
+    const baseR = 120 + st.mouth * 45;
+    for (let i = 1; i <= 3; i++) {
+      const r = baseR + i * 28 + Math.sin(t * 4 + i) * 8;
+      const a = (0.35 / i) * Math.min(1, st.mouth * 1.8);
       ctx.beginPath();
-      ctx.moveTo(hx + f * 5, hy - 10);
-      ctx.lineTo(hx + f * (6 + spread * 5), hy - 18 - spread * 8);
+      ctx.arc(W / 2, H * 0.42, r, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(${auraColor}, ${a})`;
+      ctx.lineWidth = 3 - i * 0.6;
       ctx.stroke();
     }
-  });
-  // leher
-  ctx.fillStyle = "#e8b088";
-  ctx.beginPath(); ctx.roundRect(-20, 55, 40, 40, 10); ctx.fill();
-  // wajah
-  const fg = ctx.createRadialGradient(0, -30, 10, 0, -30, 60);
-  fg.addColorStop(0, "#ffe0c0"); fg.addColorStop(1, "#df9c66");
-  ctx.fillStyle = fg;
-  ctx.beginPath(); ctx.ellipse(0, -30, 55, 62, 0, 0, Math.PI * 2); ctx.fill();
-  // rambut
-  ctx.fillStyle = female ? "#5a321e" : "#23232a";
-  if (female) {
-    ctx.beginPath(); ctx.ellipse(0, -55, 68, 55, 0, Math.PI, 0); ctx.fill();
-    ctx.fillRect(-68, -55, 16, 110); ctx.fillRect(52, -55, 16, 110);
-  } else {
-    ctx.beginPath(); ctx.ellipse(0, -62, 56, 30, 0, Math.PI, 0); ctx.fill();
-    ctx.fillRect(-56, -68, 12, 30); ctx.fillRect(44, -68, 12, 30);
   }
-  // mata
-  [-24, 24].forEach((x) => {
-    if (blink) {
-      ctx.strokeStyle = "#2a1608"; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.moveTo(x - 10, -32); ctx.quadraticCurveTo(x, -28, x + 10, -32); ctx.stroke();
-    } else {
-      ctx.fillStyle = "#fff";
-      ctx.beginPath(); ctx.ellipse(x, -32, 10, 8, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = "#1a0d05";
-      ctx.beginPath(); ctx.arc(x, -32, 4.5, 0, Math.PI * 2); ctx.fill();
+
+  // Draw 2.5D Studio Character Portrait
+  const img = female ? guestImg : hostImg;
+  const imgLoaded = female ? guestImgLoaded : hostImgLoaded;
+
+  ctx.save();
+  ctx.translate(W / 2 + swayX, H / 2 + breathY + nodY);
+  ctx.rotate(headTilt);
+  ctx.scale(breathScale, breathScale);
+
+  if (imgLoaded) {
+    // Draw base portrait centered & slightly oversized to allow motion without edges
+    const pw = W + 40;
+    const ph = H + 45;
+    ctx.drawImage(img, -pw / 2, -ph / 2 - 12, pw, ph);
+
+    // Natural Eyelid Blinking
+    if (blink > 0.05) {
+      // Eye positions on portrait
+      const eyePositions = female
+        ? [{ x: -38, y: -48 }, { x: 38, y: -48 }]
+        : [{ x: -42, y: -44 }, { x: 42, y: -44 }];
+
+      eyePositions.forEach((pos) => {
+        ctx.save();
+        ctx.translate(pos.x, pos.y);
+        const lidH = blink * 15;
+
+        // Eyelid skin tone gradient
+        const lidGrad = ctx.createLinearGradient(0, -10, 0, 10);
+        if (female) {
+          lidGrad.addColorStop(0, "rgba(224, 160, 130, 0.95)");
+          lidGrad.addColorStop(1, "rgba(196, 130, 105, 0.98)");
+        } else {
+          lidGrad.addColorStop(0, "rgba(215, 150, 115, 0.95)");
+          lidGrad.addColorStop(1, "rgba(180, 120, 90, 0.98)");
+        }
+
+        ctx.fillStyle = lidGrad;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 18, Math.max(2, lidH), 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Eyelash line
+        ctx.strokeStyle = female ? "rgba(35, 18, 12, 0.9)" : "rgba(30, 20, 15, 0.85)";
+        ctx.lineWidth = female ? 2.5 : 1.8;
+        ctx.beginPath();
+        ctx.arc(0, lidH * 0.4, 18, 0.15 * Math.PI, 0.85 * Math.PI);
+        ctx.stroke();
+
+        ctx.restore();
+      });
     }
-  });
-  // mulut: tutup / buka ikut level
-  const open = Math.min(1, Math.max(0, st.mouth));
-  if (open < 0.08) {
-    ctx.strokeStyle = "#7c2d12"; ctx.lineWidth = 3; ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(-12, 2); ctx.quadraticCurveTo(0, 8, 12, 2); ctx.stroke();
+
+    // Dynamic Lip-Sync Mouth
+    const mouthY = female ? 54 : 56;
+    const open = Math.min(1, Math.max(0, st.mouth));
+
+    ctx.save();
+    ctx.translate(0, mouthY);
+
+    if (open > 0.04) {
+      const mw = 22 + open * 14;
+      const mh = open * 15;
+
+      // Soft feather background matching lips
+      ctx.fillStyle = female ? "rgba(180, 75, 95, 0.25)" : "rgba(165, 80, 70, 0.25)";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, mw + 4, mh + 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Oral cavity depth
+      ctx.fillStyle = "#3b0c11";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, mw, mh, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Upper teeth edge
+      ctx.fillStyle = "rgba(255, 252, 245, 0.88)";
+      ctx.beginPath();
+      ctx.roundRect(-mw * 0.55, -mh * 0.75, mw * 1.1, Math.min(6, mh * 0.75), 3);
+      ctx.fill();
+
+      // Tongue hint
+      ctx.fillStyle = "rgba(225, 110, 120, 0.85)";
+      ctx.beginPath();
+      ctx.ellipse(0, mh * 0.45, mw * 0.6, Math.max(2, mh * 0.45), 0, 0, Math.PI);
+      ctx.fill();
+
+      // Upper lip contour
+      ctx.strokeStyle = female ? "rgba(195, 85, 105, 0.85)" : "rgba(175, 90, 80, 0.85)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-mw - 2, -mh * 0.2);
+      ctx.quadraticCurveTo(-mw * 0.4, -mh * 0.8, 0, -mh * 0.6);
+      ctx.quadraticCurveTo(mw * 0.4, -mh * 0.8, mw + 2, -mh * 0.2);
+      ctx.stroke();
+
+      // Lower lip contour
+      ctx.strokeStyle = female ? "rgba(215, 105, 125, 0.8)" : "rgba(190, 105, 95, 0.75)";
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.moveTo(-mw - 1, mh * 0.1);
+      ctx.quadraticCurveTo(0, mh * 1.2, mw + 1, mh * 0.1);
+      ctx.stroke();
+    } else {
+      // Gentle natural resting smile
+      ctx.strokeStyle = female ? "rgba(185, 75, 95, 0.65)" : "rgba(165, 80, 70, 0.6)";
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(-15, 0);
+      ctx.quadraticCurveTo(0, 4, 15, 0);
+      ctx.stroke();
+    }
+    ctx.restore();
+
   } else {
-    ctx.fillStyle = "#7f1d1d";
-    ctx.beginPath(); ctx.ellipse(0, 8, 10 + open * 8, open * 15, 0, 0, Math.PI * 2); ctx.fill();
+    // Elegant fallback during image load
+    ctx.fillStyle = female ? "#e5aa70" : "#df9c66";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 65, 85, 0, 0, Math.PI * 2);
+    ctx.fill();
   }
+
+  ctx.restore(); // end portrait transform
+
+  // Broadcast Studio Microphone in Foreground
+  const micX = female ? W * 0.68 : W * 0.32;
+  const micY = H - 85;
+  ctx.save();
+  ctx.translate(micX, micY);
+
+  // Boom arm
+  ctx.strokeStyle = "#334155";
+  ctx.lineWidth = 6;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(female ? 50 : -50, 95);
+  ctx.lineTo(female ? 16 : -16, 22);
+  ctx.stroke();
+
+  // Swivel mount
+  ctx.fillStyle = "#1e293b";
+  ctx.beginPath();
+  ctx.arc(female ? 16 : -16, 20, 8, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Microphone body (Shure SM7B aesthetic)
+  ctx.save();
+  ctx.rotate(female ? -0.22 : 0.22);
+
+  // Metallic capsule
+  ctx.fillStyle = "#0f172a";
+  ctx.beginPath();
+  ctx.roundRect(-14, -28, 28, 48, 8);
+  ctx.fill();
+
+  // Foam windscreen texture
+  ctx.fillStyle = "#1e293b";
+  ctx.beginPath();
+  ctx.roundRect(-13, -26, 26, 32, 6);
+  ctx.fill();
+
+  // Glowing "ON AIR" LED Ring
+  const ledGlow = speaking;
+  const ringColor = female ? "#f472b6" : "#38bdf8";
+
+  if (ledGlow) {
+    // Outer bloom
+    const bloomGrad = ctx.createRadialGradient(0, 10, 2, 0, 10, 18);
+    bloomGrad.addColorStop(0, female ? "rgba(244, 114, 182, 0.95)" : "rgba(56, 189, 248, 0.95)");
+    bloomGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.fillStyle = bloomGrad;
+    ctx.beginPath();
+    ctx.arc(0, 10, 18, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = ringColor;
+    ctx.fillRect(-14, 8, 28, 4);
+  } else {
+    ctx.fillStyle = "#475569";
+    ctx.fillRect(-14, 8, 28, 3);
+  }
+
   ctx.restore();
+  ctx.restore();
+
+  // Audio Equalizer Waveform Bars at Bottom
+  if (waveData && speaking) {
+    const bars = 18;
+    const barWidth = 6;
+    const startX = W / 2 - (bars * 10) / 2;
+    for (let b = 0; b < bars; b++) {
+      const idx = Math.floor((b / bars) * 24);
+      const val = (waveData[idx] / 255) * 36 * Math.min(1, st.mouth * 2);
+      const bx = startX + b * 10;
+      const by = H - 8 - val;
+      ctx.fillStyle = female ? "rgba(244, 114, 182, 0.85)" : "rgba(56, 189, 248, 0.85)";
+      ctx.beginPath();
+      ctx.roundRect(bx, by, barWidth, Math.max(3, val), 2);
+      ctx.fill();
+    }
+  }
+
+  ctx.restore(); // end clip
+
+  // Sync Card UI State
+  const card = female ? cardGuest : cardHost;
+  const statusPillText = female ? guestStatusText : hostStatusText;
+  const meterFill = female ? guestMeterFill : hostMeterFill;
+
+  if (card) {
+    card.classList.toggle("speaking", speaking);
+    card.classList.toggle("listening", isListening);
+  }
+  if (statusPillText) {
+    statusPillText.textContent = speaking ? "ON AIR" : isListening ? "Mendengarkan" : "Standby";
+  }
+  if (meterFill) {
+    meterFill.style.width = Math.min(100, Math.round(st.mouth * 135)) + "%";
+  }
 }
 
 function podLoop(now) {
   drawPodAvatar(hostCanvas, hostSt, false, now || performance.now());
   drawPodAvatar(guestCanvas, guestSt, true, now || performance.now());
-  if (activeTab === "podcast" && podcastPanel && !podcastPanel.hidden) requestAnimationFrame(podLoop);
+  if (activeTab === "podcast" && podcastPanel && !podcastPanel.hidden) {
+    requestAnimationFrame(podLoop);
+  }
 }
 
 function setPodSpeaker(role) {
   hostSt.mode = role === "host" ? "speaking" : "idle";
   guestSt.mode = role === "guest" ? "speaking" : "idle";
-  if (cardHost) cardHost.classList.toggle("speaking", role === "host");
-  if (cardGuest) cardGuest.classList.toggle("speaking", role === "guest");
-  if (podSpeakerEl) podSpeakerEl.textContent = role === "host" ? "HOST bicara" : role === "guest" ? "GUEST bicara" : "siap";
+  if (cardHost) {
+    cardHost.classList.toggle("speaking", role === "host");
+    cardHost.classList.toggle("listening", role === "guest");
+  }
+  if (cardGuest) {
+    cardGuest.classList.toggle("speaking", role === "guest");
+    cardGuest.classList.toggle("listening", role === "host");
+  }
+  if (podSpeakerEl) {
+    podSpeakerEl.textContent = role === "host" ? "RAMA (Host) Live" : role === "guest" ? "MAYA (Guest) Live" : "Standby";
+  }
 }
 
 function playPodAudio(b64, role) {
-  if (typeof audioCtx === "undefined" || !audioCtx || audioCtx.state === "closed") {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
+  ensurePodAudio();
   const raw = atob(b64);
   const buf = new ArrayBuffer(raw.length);
   const view = new Uint8Array(buf);
   for (let i = 0; i < raw.length; i++) view[i] = raw.charCodeAt(i);
   const samples = new Int16Array(buf);
   let sum = 0;
-  for (let i = 0; i < samples.length; i++) { const v = samples[i] / 32768; sum += v * v; }
+  for (let i = 0; i < samples.length; i++) {
+    const v = samples[i] / 32768;
+    sum += v * v;
+  }
   const rms = Math.sqrt(sum / Math.max(1, samples.length));
+
   const out = audioCtx.createBuffer(1, samples.length, 24000);
   const ch = out.getChannelData(0);
   for (let i = 0; i < samples.length; i++) ch[i] = samples[i] / 32768;
+
   const src = audioCtx.createBufferSource();
   src.buffer = out;
-  src.connect(audioCtx.destination);
+
+  // Route through Web Audio Analyser
+  const analyser = role === "guest" ? guestAnalyser : hostAnalyser;
+  src.connect(analyser);
+
   const now = Math.max(audioCtx.currentTime, (typeof playCursor !== "undefined" ? playCursor : 0));
   src.start(now);
   if (typeof playCursor !== "undefined") playCursor = now + out.duration;
+
   const st = role === "guest" ? guestSt : hostSt;
   st.level = Math.min(1, rms * 4);
+  st.speakingUntil = (now + out.duration) * 1000;
   setPodSpeaker(role);
 }
 
-/* Subtitle per speaker. */
+/* Real-Time Subtitle Streamer & Transcript */
 const podLines = { host: null, guest: null };
 function podAppend(role, text) {
-  const label = role === "guest" ? "Guest: " : "Host: ";
+  const isGuest = role === "guest";
+  const label = isGuest ? "Maya (Guest): " : "Rama (Host): ";
+
+  // Update Transcript Box
   if (!podLines[role]) {
     const div = document.createElement("div");
     div.className = "msg " + role;
@@ -210,6 +551,21 @@ function podAppend(role, text) {
   } else {
     podLines[role].childNodes[1].textContent += text;
     log.scrollTop = log.scrollHeight;
+  }
+
+  // Update Live Floating Subtitle Overlay on Avatar Card
+  const overlay = isGuest ? guestSpeechOverlay : hostSpeechOverlay;
+  const liveText = isGuest ? guestLiveText : hostLiveText;
+  const st = isGuest ? guestSt : hostSt;
+
+  if (overlay && liveText) {
+    overlay.hidden = false;
+    liveText.textContent = (liveText.textContent === "..." ? "" : liveText.textContent) + text;
+    if (st.speechTimeout) clearTimeout(st.speechTimeout);
+    st.speechTimeout = setTimeout(() => {
+      overlay.hidden = true;
+      liveText.textContent = "...";
+    }, 4500);
   }
 }
 
@@ -233,6 +589,12 @@ function podTick() {
 }
 
 if (podStart) podStart.addEventListener("click", () => {
+  if (typeof audioCtx === "undefined" || !audioCtx || audioCtx.state === "closed") {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === "suspended") {
+    audioCtx.resume();
+  }
   try {
     if (pws && (pws.readyState === WebSocket.OPEN || pws.readyState === WebSocket.CONNECTING)) {
       try { pws.onclose = null; } catch (e) {}
@@ -241,13 +603,17 @@ if (podStart) podStart.addEventListener("click", () => {
   } catch (e) {}
   pws = null;
   const wsProto = location.protocol === "https:" ? "wss" : "ws";
-  const search = localStorage.getItem("live_search") === "1" ? "1" : "0";
+  const isSearch = podSearchBox ? podSearchBox.checked : (localStorage.getItem("live_search") !== "0");
+  const search = isSearch ? "1" : "0";
   pws = new WebSocket(`${wsProto}://${location.host}/ws_podcast?client=${clientId}&search=${search}&host_voice=${hostVoice}&guest_voice=${guestVoice}&max_minutes=10`);
   pws.onopen = () => {
     pws.send(JSON.stringify({
       type: "podcast_start",
-      topic: (topicInput && topicInput.value.trim()) || "Obrolan santai",
-      host_voice: hostVoice, guest_voice: guestVoice, max_minutes: 10,
+      topic: (topicInput && topicInput.value.trim()) || "Masa Depan AI & Robotika Humanoid",
+      host_voice: hostVoice,
+      guest_voice: guestVoice,
+      max_minutes: 10,
+      enable_search: isSearch,
     }));
     podT0 = Date.now();
     clearInterval(podClockTimer);
@@ -255,7 +621,7 @@ if (podStart) podStart.addEventListener("click", () => {
     podStart.disabled = true;
     podStop.disabled = false;
     if (podExport) podExport.hidden = true;
-    statusEl.textContent = "Podcast mulai. Host + guest live...";
+    statusEl.textContent = "Podcast dimulai! Host dan Guest sedang live...";
   };
   pws.onmessage = (ev) => {
     const pkt = JSON.parse(ev.data);
@@ -266,6 +632,11 @@ if (podStart) podStart.addEventListener("click", () => {
     }
     else if (pkt.type === "transcript_out" && pkt.avatar) { podAppend(pkt.avatar, pkt.text); setPodSpeaker(pkt.avatar); }
     else if (pkt.type === "audio" && pkt.avatar) playPodAudio(pkt.data, pkt.avatar);
+    else if (pkt.type === "sources" && pkt.items) {
+      if (typeof addSources === "function") {
+        addSources(pkt.items);
+      }
+    }
     else if (pkt.type === "turn_complete" && pkt.avatar) {
       podLines[pkt.avatar] = null;
       setPodSpeaker(pkt.avatar === "host" ? "guest" : "host");
@@ -276,22 +647,6 @@ if (podStart) podStart.addEventListener("click", () => {
       podStart.disabled = false;
       podStop.disabled = true;
       setPodSpeaker("none");
-      statusEl.textContent += " (Render video nonaktif sementara.)";
-      if (false && podExport && podPid) {
-        fetch(`/export_status/${podPid}`).then((r) => r.json()).then((st) => {
-          if (st && st.ready !== false && (st.turns === null || st.turns === undefined || st.turns > 0)) {
-            podExport.href = `/export/${podPid}`;
-            podExport.hidden = false;
-            podExport.textContent = "Unduh MP4";
-          } else {
-            statusEl.textContent = `Podcast selesai (${(st && st.turns) || 0} giliran). Belum cukup audio untuk MP4.`;
-          }
-        }).catch(() => {
-          podExport.href = `/export/${podPid}`;
-          podExport.hidden = false;
-          podExport.textContent = "Unduh MP4";
-        });
-      }
     }
   };
   pws.onclose = () => {
@@ -304,5 +659,24 @@ if (podStart) podStart.addEventListener("click", () => {
 if (podStop) podStop.addEventListener("click", () => {
   if (pws && pws.readyState === WebSocket.OPEN) pws.send(JSON.stringify({ type: "podcast_stop" }));
 });
+
+// Topic chips & Enter key trigger
+document.querySelectorAll(".chip[data-topic]").forEach((chip) => {
+  chip.addEventListener("click", () => {
+    if (topicInput) {
+      topicInput.value = chip.getAttribute("data-topic");
+      topicInput.focus();
+    }
+  });
+});
+
+if (topicInput) {
+  topicInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !podStart.disabled) {
+      e.preventDefault();
+      podStart.click();
+    }
+  });
+}
 
 applyTab();
