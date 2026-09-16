@@ -310,11 +310,17 @@ async def stop_podcast(pid: str, reason: str = "Podcast dihentikan."):
     if not pod:
         return None
     pod.running = False
+    try:
+        cur = asyncio.current_task()
+    except Exception:
+        cur = None
+    others = [t for t in pod._tasks if t is not cur]
     for t in pod._tasks:
-        t.cancel()
-    if pod._tasks:
+        if t is not cur:
+            t.cancel()
+    if others:
         try:
-            await asyncio.gather(*pod._tasks, return_exceptions=True)
+            await asyncio.gather(*others, return_exceptions=True)
         except Exception:
             pass
     try:

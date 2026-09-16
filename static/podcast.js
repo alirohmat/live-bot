@@ -198,7 +198,13 @@ function podTick() {
 }
 
 if (podStart) podStart.addEventListener("click", () => {
-  if (pws && pws.readyState === WebSocket.OPEN) return;
+  try {
+    if (pws && (pws.readyState === WebSocket.OPEN || pws.readyState === WebSocket.CONNECTING)) {
+      try { pws.onclose = null; } catch (e) {}
+      try { pws.close(); } catch (e) {}
+    }
+  } catch (e) {}
+  pws = null;
   const wsProto = location.protocol === "https:" ? "wss" : "ws";
   const search = localStorage.getItem("live_search") === "1" ? "1" : "0";
   pws = new WebSocket(`${wsProto}://${location.host}/ws_podcast?client=${clientId}&search=${search}&host_voice=${hostVoice}&guest_voice=${guestVoice}&max_minutes=10`);
