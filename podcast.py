@@ -182,9 +182,10 @@ async def _relay_turn(pod: PodcastSession, src: str, sessions: dict):
         pod.guest_text = ""
     if not audio and not text:
         return
-    # echo guard: turn hampa (audio <0.3 dtk + teks <3 kata) jangan direlay,
-    # itu gema/noise, bukan ucapan lawan
-    if len(audio) < 24000 * 2 * 2 // 10 * 3 and len(text.split()) < 3:
+    # echo guard: buang hanya bila audio sangat pendek DAN teks hampa.
+    # Turn sahih tanpa transkrip (audio panjang, teks kosong) tetap direlay
+    # agar guest tidak diam selamanya.
+    if len(audio) < 24000 and len(text.split()) < 3:
         return
     # kunci giliran ke lawan agar tidak rebutan
     pod.speaker = dst
@@ -381,6 +382,7 @@ async def start_podcast(pid: str, client_id: str, ws, topic: str, host_voice: st
             asyncio.create_task(_pump(pod, "host", h_sess, sessions)),
             asyncio.create_task(_pump(pod, "guest", g_sess, sessions)),
             asyncio.create_task(_timer(pod, sessions)),
+            asyncio.create_task(_kickstart(pod, sessions)),
         ]
         await _send(ws, {"type": "podcast_started", "pid": pid, "topic": topic})
         return pod
@@ -395,6 +397,23 @@ async def start_podcast(pid: str, client_id: str, ws, topic: str, host_voice: st
             pass
         PODCASTS.pop(pid, None)
         raise RuntimeError(f"Gagal mulai podcast: {e}")
+
+
+async def _kickstart(pod, sessions):
+    """Watchdog: bila 25 detik belum ada 2 giliran, dorong guest via teks."""
+    try:
+        await asyncio.sleep(25)
+        if not pod.running or pod.turns >= 2:
+            return
+        gs = sessions.get("guest")
+        if gs is None:
+            return
+        await _send(pod.ws, {"type": "status", "text": "Guest didorong mulai (relay audio tak sampai)."})
+        await gs.send_client_content(turns={"parts": [{"text": "Topik podcast: " + pod.topic + ". Host sedang membuka. Sapa pendengar 1-2 kalimat lalu lempar balik ke host."}]})
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        await _send(pod.ws, {"type": "status", "text": "kickstart gagal: " + str(e)})
 
 
 async def stop_podcast(pid: str, reason: str = "Podcast dihentikan."):
