@@ -248,6 +248,31 @@ async def _timer(pod: PodcastSession, sessions: dict):
             return
 
 
+async def _connect_slot(keys: list, slot_key: str, voice: str, role: str,
+                      enable_search: bool, label: str):
+    """Buka 1 sesi Live, coba tiap key. Stale handle -> bersihkan, coba lagi."""
+    last_err = None
+    tried_stale_retry = False
+    for key in keys:
+        handle = HANDLES.get(slot_key)
+        cfg = build_config(enable_search, handle, voice, role)
+        try:
+            client = genai.Client(api_key=key)
+            ctx = client.aio.live.connect(model=LIVE_MODEL, config=cfg)
+            sess = await ctx.__aenter__()
+            return ctx, sess
+        except Exception as e:
+            last_err = e
+            msg = f"{type(e).__name__}: {e}".lower()
+            if ("handle" in msg or "resum" in msg or "invalid" in msg) and not tried_stale_retry:
+                tried_stale_retry = True
+                HANDLES.pop(slot_key, None)
+                continue
+            if not is_quota_error(e):
+                raise
+    raise last_err
+
+
 async def start_podcast(pid: str, client_id: str, ws, topic: str, host_voice: str,
                         guest_voice: str, max_minutes: float = 10.0,
                         enable_search: bool = False) -> PodcastSession:
@@ -260,49 +285,53 @@ async def start_podcast(pid: str, client_id: str, ws, topic: str, host_voice: st
                          max_minutes=max_minutes, enable_search=enable_search)
     PODCASTS[pid] = pod
 
-    last_err = None
-    for hk in host_keys:
-        for gk in guest_keys:
-            try:
-                h_client = genai.Client(api_key=hk)
-                g_client = genai.Client(api_key=gk)
-                h_cfg = build_config(enable_search, HANDLES.get(f"{client_id}:host"), host_voice, "host")
-                g_cfg = build_config(False, HANDLES.get(f"{client_id}:guest"), guest_voice, "guest")
-                h_ctx = h_client.aio.live.connect(model=LIVE_MODEL, config=h_cfg)
-                g_ctx = g_client.aio.live.connect(model=LIVE_MODEL, config=g_cfg)
-                h_sess = await h_ctx.__aenter__()
-                try:
-                    g_sess = await g_ctx.__aenter__()
-                except Exception:
-                    await h_ctx.__aexit__(None, None, None)
-                    raise
-                pod.running = True
-                pod.t0 = time.time()
-                sessions = {"host": h_sess, "guest": g_sess}
-                pod._ctxs = (h_ctx, g_ctx)
-                pod._sessions = sessions
-                # konteks topik ke dua agen
-                intro = f"Topik podcast: {topic}. Host pria buka dulu 2-3 kalimat, lalu guest wanita menanggapi. Bergantian."
-                await h_sess.send_client_content(turns={"parts": [{"text": intro}]})
-                await g_sess.send_client_content(
-                    turns={"parts": [{"text": intro + " Tunggu host bicara dulu."}]},
-                    turn_complete=False,
-                )
-                pod._tasks = [
-                    asyncio.create_task(_pump(pod, "host", h_sess, sessions)),
-                    asyncio.create_task(_pump(pod, "guest", g_sess, sessions)),
-                    asyncio.create_task(_timer(pod, sessions)),
-                ]
-                await _send(ws, {"type": "podcast_started", "pid": pid, "topic": topic})
-                return pod
-            except Exception as e:
-                last_err = e
-                if not is_quota_error(e):
-                    break
-        if last_err is not None and not is_quota_error(last_err):
-            break
-    PODCASTS.pop(pid, None)
-    raise RuntimeError(f"Gagal buka sesi podcast: {last_err}")
+    try:
+        h_ctx, h_sess = await _connect_slot(
+            host_keys, f"{client_id}:host", host_voice, "host", enable_search, "host")
+    except Exception as e:
+        PODCASTS.pop(pid, None)
+        raise RuntimeError(f"Gagal buka sesi host: {e}")
+    try:
+        g_ctx, g_sess = await _connect_slot(
+            guest_keys, f"{client_id}:guest", guest_voice, "guest", enable_search, "guest")
+    except Exception as e:
+        try:
+            await h_ctx.__aexit__(None, None, None)
+        except Exception:
+            pass
+        PODCASTS.pop(pid, None)
+        raise RuntimeError(f"Gagal buka sesi guest: {e}")
+    try:
+        pod.running = True
+        pod.t0 = time.time()
+        sessions = {"host": h_sess, "guest": g_sess}
+        pod._ctxs = (h_ctx, g_ctx)
+        pod._sessions = sessions
+        # konteks topik ke dua agen
+        intro = f"Topik podcast: {topic}. Host pria buka dulu 2-3 kalimat, lalu guest wanita menanggapi. Bergantian."
+        await h_sess.send_client_content(turns={"parts": [{"text": intro}]})
+        await g_sess.send_client_content(
+            turns={"parts": [{"text": intro + " Tunggu host bicara dulu."}]},
+            turn_complete=False,
+        )
+        pod._tasks = [
+            asyncio.create_task(_pump(pod, "host", h_sess, sessions)),
+            asyncio.create_task(_pump(pod, "guest", g_sess, sessions)),
+            asyncio.create_task(_timer(pod, sessions)),
+        ]
+        await _send(ws, {"type": "podcast_started", "pid": pid, "topic": topic})
+        return pod
+    except Exception as e:
+        try:
+            await h_ctx.__aexit__(None, None, None)
+        except Exception:
+            pass
+        try:
+            await g_ctx.__aexit__(None, None, None)
+        except Exception:
+            pass
+        PODCASTS.pop(pid, None)
+        raise RuntimeError(f"Gagal mulai podcast: {e}")
 
 
 async def stop_podcast(pid: str, reason: str = "Podcast dihentikan."):
@@ -414,8 +443,23 @@ def render_export(pod: PodcastSession) -> str:
         d.rounded_rectangle([60, 540, 1220, 660], 16, fill=(2, 6, 23))
         d.text((90, 565), sub_at(t), fill=(226, 232, 240), font=small)
         img.save(os.path.join(frames_dir, f"f{i:05d}.png"))
+    if dur < 1.0:
+        # tanpa audio valid ffmpeg gagal; buat nada hening 1 detik agar MP4 tetap jadi
+        silence = (np.zeros(rate, dtype=np.int16)).tobytes()
+        mix_wav(wav_path, silence, [])
+        dur = 1.0
+        n = int(dur * fps)
+        for i in range(len(pod.timeline), n):
+            pass
     cmd = ["ffmpeg", "-y", "-framerate", str(fps), "-i", os.path.join(frames_dir, "f%05d.png"),
            "-i", wav_path, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
            "-shortest", out_mp4]
-    subprocess.run(cmd, check=True, capture_output=True)
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+    finally:
+        import shutil
+        try:
+            shutil.rmtree(frames_dir, ignore_errors=True)
+        except Exception:
+            pass
     return out_mp4
