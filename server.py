@@ -433,6 +433,9 @@ async def ws_podcast(ws: WebSocket):
             except json.JSONDecodeError:
                 continue
             kind = pkt.get("type")
+            if kind == "podcast_start" and pid is not None:
+                await _pod.stop_podcast(pid, reason="Podcast sebelumnya dihentikan, mulai baru.")
+                pid = None
             if kind == "podcast_start" and pid is None:
                 topic = (pkt.get("topic") or "").strip() or "Obrolan santai"
                 hv = pkt.get("host_voice", host_voice)
@@ -467,20 +470,43 @@ async def ws_podcast(ws: WebSocket):
 @app.get("/export/{pid}")
 async def export_podcast(pid: str):
     """Render + unduh MP4 server-side bila podcast selesai."""
+    from fastapi.responses import JSONResponse
+
     import podcast as _pod
 
     safe = "".join(c for c in pid if c.isalnum() or c in ("-", "_"))
+    if not safe:
+        return JSONResponse({"ok": False, "error": "pid tidak valid"}, status_code=400)
     mp4 = os.path.join(_pod.EXPORT_DIR, f"{safe}.mp4")
     if os.path.exists(mp4):
         return FileResponse(mp4, media_type="video/mp4", filename=f"{safe}.mp4")
     pod = _pod.PODCASTS.get(pid) or _pod.PODCASTS.get(safe)
     if pod is None:
-        return FileResponse(STATIC_DIR / "index.html")
+        return JSONResponse({"ok": False, "error": "podcast tidak ditemukan"}, status_code=404)
+    if pod.turns == 0:
+        return JSONResponse({"ok": False, "error": "belum ada audio, podcast terlalu singkat"}, status_code=409)
     try:
         path = await asyncio.to_thread(_pod.render_export, pod)
         return FileResponse(path, media_type="video/mp4", filename=f"{safe}.mp4")
     except Exception as e:
-        return FileResponse(STATIC_DIR / "index.html")
+        return JSONResponse({"ok": False, "error": f"render gagal: {e}"}, status_code=500)
+
+
+@app.get("/export_status/{pid}")
+async def export_status(pid: str):
+    """Status ringan untuk frontend sebelum unduh."""
+    from fastapi.responses import JSONResponse
+
+    import podcast as _pod
+
+    safe = "".join(c for c in pid if c.isalnum() or c in ("-", "_"))
+    mp4 = os.path.join(_pod.EXPORT_DIR, f"{safe}.mp4")
+    if os.path.exists(mp4):
+        return {"ok": True, "ready": True, "turns": None}
+    pod = _pod.PODCASTS.get(pid) or _pod.PODCASTS.get(safe)
+    if pod is None:
+        return JSONResponse({"ok": False, "error": "podcast tidak ditemukan"}, status_code=404)
+    return {"ok": True, "ready": False, "turns": pod.turns, "running": pod.running}
 
 
 if __name__ == "__main__":

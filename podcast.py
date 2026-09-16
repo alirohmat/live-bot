@@ -120,8 +120,17 @@ async def _relay_turn(pod: PodcastSession, src: str, sessions: dict):
     sess = sessions.get(dst)
     if sess is None or not pod.running:
         return
-    audio = bytes(pod.host_audio if src == "host" else pod.guest_audio)
-    text = (pod.host_text if src == "host" else pod.guest_text).strip()
+    # snapshot + kosongkan dulu agar chunk baru turn berikut tidak ikut dobel
+    if src == "host":
+        audio = bytes(pod.host_audio)
+        text = pod.host_text.strip()
+        pod.host_audio = bytearray()
+        pod.host_text = ""
+    else:
+        audio = bytes(pod.guest_audio)
+        text = pod.guest_text.strip()
+        pod.guest_audio = bytearray()
+        pod.guest_text = ""
     if not audio and not text:
         return
     # kunci giliran ke lawan agar tidak rebutan
@@ -129,25 +138,22 @@ async def _relay_turn(pod: PodcastSession, src: str, sessions: dict):
     try:
         if audio:
             pcm16 = resample_24k_to_16k(audio)
-            # kirim per 100ms agar realtime input stabil
+            # kirim per 100ms agar realtime input stabil; abort bila pod berhenti
             step = 16000 * 2 // 10
             for i in range(0, len(pcm16), step):
+                if not pod.running:
+                    return
                 await sess.send_realtime_input(
                     audio={"data": pcm16[i : i + step], "mime_type": "audio/pcm;rate=16000"}
                 )
                 await asyncio.sleep(0.02)
         elif text:
+            if not pod.running:
+                return
             # fallback bila audio kosong: teks pendek, Live API dukung send_client_content
             await sess.send_client_content(turns={"parts": [{"text": f"Lawan bicara berkata: {text}. Tanggapi 2-3 kalimat."}]})
     except Exception as e:
         await _send(pod.ws, {"type": "status", "text": f"relay {src}->{dst} gagal: {e}"})
-    finally:
-        if src == "host":
-            pod.host_text = ""
-            pod.host_audio = bytearray()
-        else:
-            pod.guest_text = ""
-            pod.guest_audio = bytearray()
 
 
 async def _pump(pod: PodcastSession, role: str, session, sessions: dict):
@@ -306,12 +312,22 @@ async def stop_podcast(pid: str, reason: str = "Podcast dihentikan."):
     pod.running = False
     for t in pod._tasks:
         t.cancel()
+    if pod._tasks:
+        try:
+            await asyncio.gather(*pod._tasks, return_exceptions=True)
+        except Exception:
+            pass
     try:
         h_ctx, g_ctx = pod._ctxs
         await h_ctx.__aexit__(None, None, None)
         await g_ctx.__aexit__(None, None, None)
     except Exception:
         pass
+    pod.host_text = ""
+    pod.guest_text = ""
+    pod.host_audio = bytearray()
+    pod.guest_audio = bytearray()
+    pod._tasks = []
     await _send(pod.ws, {"type": "podcast_stopped", "pid": pid, "text": reason})
     return pod
 
