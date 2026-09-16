@@ -36,6 +36,7 @@ applyTab = function () {
   document.body.dataset.tab = activeTab;
   if (tabPodcast) tabPodcast.classList.toggle("active", activeTab === "podcast");
   if (podcastPanel) podcastPanel.hidden = activeTab !== "podcast";
+  if (typeof setLiveEnabled === "function") setLiveEnabled(activeTab !== "podcast");
   if (activeTab === "podcast") requestAnimationFrame(podLoop);
 };
 if (tabPodcast) tabPodcast.addEventListener("click", () => { activeTab = "podcast"; localStorage.setItem("live_tab", "podcast"); applyTab(); });

@@ -315,15 +315,14 @@ async def ws_bridge(ws: WebSocket):
         )
         await ws.close()
         return
-    client = genai.Client(api_key=keys[0])
     # Resume sesi sebelumnya bila handle masih valid (< 2 jam).
     last_voice = HANDLES.get(client_id + ":voice")
     handle = HANDLES.get(client_id)
     if last_voice is not None and last_voice != voice_name:
         handle = None
-    resumed = bool(handle)
     for _attempt, _key in enumerate(keys):
         client = genai.Client(api_key=_key)
+        resumed = bool(handle)
         try:
             async with client.aio.live.connect(
                 model=LIVE_MODEL,

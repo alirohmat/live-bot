@@ -49,6 +49,7 @@ if (tabText) tabText.addEventListener("click", () => { activeTab = "text"; local
 
 let ws = null;
 let reconnectTimer = null;
+let livePaused = false; // true saat tab podcast aktif: hemat RPM, jangan auto-connect
 let audioCtx = null;
 let micStream = null;
 let micProc = null;
@@ -531,8 +532,12 @@ function connect() {
   };
 
   ws.onclose = () => {
-    statusEl.textContent = "Koneksi putus. Menyambung ulang...";
     setAvatarMode("idle");
+    if (livePaused) {
+      statusEl.textContent = "Live dijeda (mode podcast).";
+      return;
+    }
+    statusEl.textContent = "Koneksi putus. Menyambung ulang...";
     clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(connect, 2000);
   };
@@ -542,8 +547,29 @@ function connect() {
   };
 }
 
+function setLiveEnabled(on) {
+  livePaused = !on;
+  if (on) {
+    if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+      clearTimeout(reconnectTimer);
+      connect();
+    }
+  } else if (ws && ws.readyState === WebSocket.OPEN) {
+    clearTimeout(reconnectTimer);
+    livePaused = true;
+    try { ws.close(); } catch (e) {}
+  } else {
+    clearTimeout(reconnectTimer);
+  }
+}
+
 applyTab();
-connect();
+if ((localStorage.getItem("live_tab") || "avatar") !== "podcast") {
+  connect();
+} else {
+  livePaused = true;
+  statusEl.textContent = "Mode podcast. Live dijeda.";
+}
 
 form.addEventListener("submit", (e) => {
   e.preventDefault();
