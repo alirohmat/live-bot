@@ -55,22 +55,53 @@ def resample_24k_to_16k(pcm24: bytes) -> bytes:
     return b.tobytes()
 
 
-def mix_wav(path: str, host_pcm: bytes, guest_pcm: list, rate: int = 24000):
-    """Campur audio per speaker berdasarkan timeline offset ke satu WAV."""
-    total = len(host_pcm) // 2
-    for _, start_s, chunk in guest_pcm:
-        end = int(start_s * rate) + len(chunk) // 2
+def _norm_segs(segs, pcm_bytes: bytes = b""):
+    """Terima list (text,start,pcm) atau bytes mentah (offset 0)."""
+    if isinstance(segs, (bytes, bytearray)):
+        return [("", 0.0, bytes(segs))] if segs else []
+    return list(segs or [])
+
+
+def mix_wav(path: str, host_pcm, guest_pcm: list, rate: int = 24000, stereo: bool = False):
+    """Campur audio per offset timeline akurat. host_pcm boleh bytes lama atau list segs."""
+    host_segs = _norm_segs(host_pcm)
+    guest_segs = _norm_segs(guest_pcm)
+    total = 0
+    for _, start_s, chunk in host_segs + guest_segs:
+        end = int(max(0.0, start_s) * rate) + len(chunk) // 2
         total = max(total, end)
-    buf = np.zeros(total, dtype=np.float32)
-    h = np.frombuffer(host_pcm, dtype=np.int16).astype(np.float32)
-    buf[: len(h)] += h
-    for _, start_s, chunk in guest_pcm:
+    total = max(total, 1)
+    if stereo:
+        buf = np.zeros((total, 2), dtype=np.float32)
+    else:
+        buf = np.zeros(total, dtype=np.float32)
+    for _, start_s, chunk in host_segs:
+        if not chunk:
+            continue
+        h = np.frombuffer(chunk, dtype=np.int16).astype(np.float32)
+        i = int(max(0.0, start_s) * rate)
+        j = min(total, i + len(h))
+        if j <= i:
+            continue
+        if stereo:
+            buf[i:j, 0] += h[: j - i]
+        else:
+            buf[i:j] += h[: j - i]
+    for _, start_s, chunk in guest_segs:
+        if not chunk:
+            continue
         g = np.frombuffer(chunk, dtype=np.int16).astype(np.float32)
-        i = int(start_s * rate)
-        buf[i : i + len(g)] += g
+        i = int(max(0.0, start_s) * rate)
+        j = min(total, i + len(g))
+        if j <= i:
+            continue
+        if stereo:
+            buf[i:j, 1] += g[: j - i]
+        else:
+            buf[i:j] += g[: j - i]
     buf = np.clip(buf, -32768, 32767).astype(np.int16)
     with wave.open(path, "wb") as w:
-        w.setnchannels(1)
+        w.setnchannels(2 if stereo else 1)
         w.setsampwidth(2)
         w.setframerate(rate)
         w.writeframes(buf.tobytes())
@@ -93,7 +124,8 @@ class PodcastSession:
     running: bool = False
     speaker: str = "host"  # half-duplex: siapa boleh bicara
     t0: float = 0.0
-    host_pcm: bytearray = field(default_factory=bytearray)
+    host_pcm: bytearray = field(default_factory=bytearray)  # legacy: gabungan mentah
+    host_segs: list = field(default_factory=list)  # (text, start_s, pcm) offset akurat
     guest_segs: list = field(default_factory=list)  # (text, start_s, pcm)
     timeline: list = field(default_factory=list)  # {avatar,text,t0,t1}
     host_text: str = ""
@@ -214,6 +246,7 @@ async def _pump(pod: PodcastSession, role: str, session, sessions: dict):
                         now_s = pod.elapsed()
                         if role == "host":
                             pod.host_pcm += turn_audio
+                            pod.host_segs.append((txt, now_s - dur, bytes(turn_audio)))
                         else:
                             pod.guest_segs.append((txt, now_s - dur, bytes(turn_audio)))
                         pod.timeline.append({"avatar": role, "text": txt, "t0": now_s - dur, "t1": now_s})
@@ -387,7 +420,9 @@ def render_export(pod: PodcastSession) -> str:
     """Render MP4 server-side: wav campur + frame PIL + ffmpeg mux. Return path."""
     out_mp4 = os.path.join(EXPORT_DIR, f"{pod.pid}.mp4")
     wav_path = os.path.join(EXPORT_DIR, f"{pod.pid}.wav")
-    mix_wav(wav_path, bytes(pod.host_pcm), pod.guest_segs)
+    host_src = pod.host_segs if getattr(pod, "host_segs", None) else bytes(pod.host_pcm)
+    stereo = os.environ.get("PODCAST_STEREO", "0") == "1"
+    mix_wav(wav_path, host_src, pod.guest_segs, stereo=stereo)
     # durasi dari wav
     import wave as wv
     with wv.open(wav_path, "rb") as w:
