@@ -30,3 +30,22 @@ body[data-tab="text"] #avatarPanel { display: none; }
 .avatar-meta { display: flex; align-items: center; gap: 12px; }
 #avatarState { font-size: 15px; color: #7dd3fc; font-weight: 600; }
 #avatarPanel { flex: 1; justify-content: center; }
+
+/* Podcast dual avatar */
+#podcastPanel { display: flex; flex-direction: column; gap: 10px; padding: 16px; border-bottom: 1px solid #334155; background: radial-gradient(120% 100% at 50% 0%, #1a1030 0%, #0b1220 60%); overflow-y: auto; flex: 1; }
+#podcastPanel[hidden] { display: none; }
+.pod-head { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.pod-head input { min-width: 200px; }
+.pod-head select { background: #0b1220; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; padding: 8px; }
+.pod-head a { padding: 10px 14px; border-radius: 8px; background: #38bdf8; color: #082f49; font-weight: 700; text-decoration: none; }
+.pod-timer { display: flex; gap: 12px; align-items: center; font-weight: 700; color: #fbbf24; }
+.pod-stage { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.pod-card { border: 2px solid #334155; border-radius: 16px; padding: 8px; background: #0b1220; }
+.pod-card.speaking { border-color: #22c55e; box-shadow: 0 0 18px rgba(34,197,94,.5); }
+.pod-card canvas { width: min(40vw, 220px); height: auto; aspect-ratio: 440 / 520; border-radius: 12px; background: #16213a; }
+.pod-name { text-align: center; font-weight: 800; letter-spacing: 2px; color: #94a3b8; padding: 6px 0 2px; }
+.msg.host { background: #0c2a4a; align-self: flex-start; border-left: 3px solid #38bdf8; }
+.msg.guest { background: #3a1025; align-self: flex-start; border-left: 3px solid #f472b6; }
+body[data-tab="podcast"] #avatarPanel { display: none; }
+body[data-tab="avatar"] #podcastPanel, body[data-tab="text"] #podcastPanel { display: none; }
+.wrap { max-width: 960px; }

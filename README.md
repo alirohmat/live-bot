@@ -43,3 +43,28 @@ Mulut gerak ikut level suara Gemini (RMS PCM 24kHz). Status: Santai (idle + kedi
 Mendengar (mic aktif), Bicara (audio/transkrip model masuk). Toggle Avatar sembunyikan
 panel tanpa reload, pilihan tersimpan di `live_avatar`. Ini visual lokal canvas 2D,
 bukan video generatif Google. Server tak berubah.
+
+## Podcast live dual avatar
+
+Studio podcast: host pria + guest wanita, masing-masing 1 sesi Live Audio
+(`client.aio.live.connect`), key berbeda per avatar. Relay utama forward
+audio PCM antar sesi (24kHz -> resample 16kHz, half-duplex). Bukan TTS.
+
+```bash
+cp .env.example .env  # isi GEMINI_API_KEY_HOST + GEMINI_API_KEY_GUEST
+pip install -r requirements.txt  # butuh ffmpeg sistem untuk export MP4
+python server.py
+# buka http://localhost:8000 -> tab Podcast
+```
+
+- Isi topik, pilih suara host/guest, klik Mulai. Timer maks 10 menit,
+  host beri penutup otomatis 30 detik terakhir, lalu sesi ditutup.
+- Tombol Stop akhiri manual. Setelah selesai muncul link Unduh MP4
+  (`GET /export/{pid}`), render server-side: WAV campur + frame avatar
+  + subtitle via ffmpeg (h264 + aac).
+- Key: `GEMINI_API_KEY_HOST` (host), `GEMINI_API_KEY_GUEST` (guest),
+  fallback `GEMINI_API_KEYS=k1,k2` lalu `GEMINI_API_KEY` lama.
+  Saat 429/quota, otomatis coba key cadangan. Isi key tak pernah di-log.
+- Voice tidak bisa ganti mid-session, jadi 2 sesi paralel wajib.
+  Default host `Charon`, guest `Kore` (env `LIVE_VOICE_HOST/GUEST`).
+- File export tersimpan di `exports/` (gitignored).

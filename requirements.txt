@@ -4,3 +4,5 @@ sounddevice
 numpy
 fastapi
 uvicorn[standard]
+python-dotenv
+pillow

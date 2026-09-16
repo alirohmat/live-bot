@@ -1,0 +1,399 @@
+"""Orkestrasi podcast live dual avatar: host pria + guest wanita.
+
+Dua sesi `client.aio.live.connect` paralel, key berbeda per avatar.
+Relay utama forward audio PCM 24kHz -> resample 16kHz half-duplex.
+Host pantau durasi, hard stop 10 menit default.
+
+Rekaman server-side: PCM per speaker + timeline transcript.
+Export MP4 via ffmpeg (wav campur + frame PIL + subtitle).
+"""
+
+import asyncio
+import base64
+import io
+import os
+import subprocess
+import time
+import wave
+from dataclasses import dataclass, field
+
+import numpy as np
+
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    HAS_PIL = True
+except Exception:
+    HAS_PIL = False
+
+from google import genai
+
+from server import (
+    LIVE_MODEL,
+    build_config,
+    keys_for_slot,
+    is_quota_error,
+    remember,
+    HANDLES,
+)
+
+PODCASTS: dict = {}
+EXPORT_DIR = os.environ.get("PODCAST_EXPORT_DIR", "exports")
+os.makedirs(EXPORT_DIR, exist_ok=True)
+
+
+def resample_24k_to_16k(pcm24: bytes) -> bytes:
+    """PCM int16 mono 24kHz -> 16kHz. Linear sederhana, cukup jernih."""
+    if not pcm24:
+        return b""
+    a = np.frombuffer(pcm24, dtype=np.int16).astype(np.float32)
+    n_out = int(len(a) * 16000 / 24000)
+    if n_out < 1:
+        return b""
+    x_old = np.linspace(0, 1, len(a))
+    x_new = np.linspace(0, 1, n_out)
+    b = np.interp(x_new, x_old, a).astype(np.int16)
+    return b.tobytes()
+
+
+def mix_wav(path: str, host_pcm: bytes, guest_pcm: list, rate: int = 24000):
+    """Campur audio per speaker berdasarkan timeline offset ke satu WAV."""
+    total = len(host_pcm) // 2
+    for _, start_s, chunk in guest_pcm:
+        end = int(start_s * rate) + len(chunk) // 2
+        total = max(total, end)
+    buf = np.zeros(total, dtype=np.float32)
+    h = np.frombuffer(host_pcm, dtype=np.int16).astype(np.float32)
+    buf[: len(h)] += h
+    for _, start_s, chunk in guest_pcm:
+        g = np.frombuffer(chunk, dtype=np.int16).astype(np.float32)
+        i = int(start_s * rate)
+        buf[i : i + len(g)] += g
+    buf = np.clip(buf, -32768, 32767).astype(np.int16)
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(buf.tobytes())
+    return path
+
+
+@dataclass
+class PodcastSession:
+    pid: str
+    topic: str
+    client_id: str
+    host_voice: str = "Charon"
+    guest_voice: str = "Kore"
+    max_minutes: float = 10.0
+    ws: object = None
+    enable_search: bool = False
+    running: bool = False
+    speaker: str = "host"  # half-duplex: siapa boleh bicara
+    t0: float = 0.0
+    host_pcm: bytearray = field(default_factory=bytearray)
+    guest_segs: list = field(default_factory=list)  # (text, start_s, pcm)
+    timeline: list = field(default_factory=list)  # {avatar,text,t0,t1}
+    host_text: str = ""
+    guest_text: str = ""
+    host_audio: bytearray = field(default_factory=bytearray)
+    guest_audio: bytearray = field(default_factory=bytearray)
+    turns: int = 0
+    _tasks: list = field(default_factory=list)
+
+    def elapsed(self) -> float:
+        return time.time() - self.t0 if self.t0 else 0.0
+
+    def remaining(self) -> float:
+        return max(0.0, self.max_minutes * 60 - self.elapsed())
+
+
+async def _send(ws, pkt: dict):
+    try:
+        await ws.send_json(pkt)
+    except Exception:
+        pass
+
+
+async def _relay_turn(pod: PodcastSession, src: str, sessions: dict):
+    """Forward audio turn src -> lawan. Half-duplex."""
+    dst = "guest" if src == "host" else "host"
+    sess = sessions.get(dst)
+    if sess is None or not pod.running:
+        return
+    audio = bytes(pod.host_audio if src == "host" else pod.guest_audio)
+    text = (pod.host_text if src == "host" else pod.guest_text).strip()
+    if not audio and not text:
+        return
+    # kunci giliran ke lawan agar tidak rebutan
+    pod.speaker = dst
+    try:
+        if audio:
+            pcm16 = resample_24k_to_16k(audio)
+            # kirim per 100ms agar realtime input stabil
+            step = 16000 * 2 // 10
+            for i in range(0, len(pcm16), step):
+                await sess.send_realtime_input(
+                    audio={"data": pcm16[i : i + step], "mime_type": "audio/pcm;rate=16000"}
+                )
+                await asyncio.sleep(0.02)
+        elif text:
+            # fallback bila audio kosong: teks pendek, Live API dukung send_client_content
+            await sess.send_client_content(turns={"parts": [{"text": f"Lawan bicara berkata: {text}. Tanggapi 2-3 kalimat."}]})
+    except Exception as e:
+        await _send(pod.ws, {"type": "status", "text": f"relay {src}->{dst} gagal: {e}"})
+    finally:
+        if src == "host":
+            pod.host_text = ""
+            pod.host_audio = bytearray()
+        else:
+            pod.guest_text = ""
+            pod.guest_audio = bytearray()
+
+
+async def _pump(pod: PodcastSession, role: str, session, sessions: dict):
+    """Terima audio+transkrip satu sesi, teruskan ke browser + simpan + relay saat turn_complete."""
+    turn_text = ""
+    turn_audio = bytearray()
+    t_start = time.time()
+    mem_key = f"{pod.client_id}:{role}"
+    try:
+        while pod.running:
+            try:
+                async for msg in session.receive():
+                    if not pod.running:
+                        return
+                    upd = getattr(msg, "session_resumption_update", None)
+                    if upd is not None and getattr(upd, "new_handle", None):
+                        HANDLES[mem_key] = upd.new_handle
+                    sc = msg.server_content
+                    if sc is None:
+                        continue
+                    if sc.output_transcription and sc.output_transcription.text:
+                        chunk = sc.output_transcription.text
+                        turn_text += chunk
+                        if role == "host":
+                            pod.host_text += chunk
+                        else:
+                            pod.guest_text += chunk
+                        await _send(pod.ws, {"type": "transcript_out", "avatar": role, "text": chunk})
+                    mt = getattr(sc, "model_turn", None)
+                    if mt and mt.parts:
+                        for part in mt.parts:
+                            blob = getattr(part, "inline_data", None)
+                            if blob is not None and getattr(blob, "data", None):
+                                raw = bytes(blob.data)
+                                turn_audio += raw
+                                if role == "host":
+                                    pod.host_audio += raw
+                                else:
+                                    pod.guest_audio += raw
+                                await _send(pod.ws, {
+                                    "type": "audio", "avatar": role,
+                                    "mime_type": "audio/pcm;rate=24000",
+                                    "data": base64.b64encode(raw).decode("ascii"),
+                                })
+                    if sc.turn_complete:
+                        dur = time.time() - t_start
+                        txt = turn_text.strip()
+                        if txt:
+                            remember(mem_key, "model", txt)
+                        # simpan rekaman
+                        now_s = pod.elapsed()
+                        if role == "host":
+                            pod.host_pcm += turn_audio
+                        else:
+                            pod.guest_segs.append((txt, now_s - dur, bytes(turn_audio)))
+                        pod.timeline.append({"avatar": role, "text": txt, "t0": now_s - dur, "t1": now_s})
+                        pod.turns += 1
+                        await _send(pod.ws, {"type": "turn_complete", "avatar": role})
+                        turn_text = ""
+                        turn_audio = bytearray()
+                        t_start = time.time()
+                        # relay ke lawan bila masih ada waktu
+                        if pod.remaining() > 5:
+                            await _relay_turn(pod, role, sessions)
+                        break
+            except Exception as e:
+                await _send(pod.ws, {"type": "status", "text": f"live {role} terputus: {e}"})
+                return
+    except asyncio.CancelledError:
+        pass
+
+
+async def _timer(pod: PodcastSession, sessions: dict):
+    """Host pantau durasi: warning 30 detik akhir, hard stop tepat waktu."""
+    warned = False
+    while pod.running:
+        await asyncio.sleep(1)
+        rem = pod.remaining()
+        if rem <= 30 and not warned:
+            warned = True
+            await _send(pod.ws, {"type": "status", "text": "30 detik tersisa. Host menutup podcast."})
+            try:
+                hs = sessions.get("host")
+                if hs is not None:
+                    await hs.send_client_content(turns={"parts": [
+                        {"text": "Waktu hampir habis. Tutup podcast dengan 1-2 kalimat penutup hangat."}
+                    ]})
+            except Exception:
+                pass
+        if rem <= 0:
+            await stop_podcast(pod.pid, reason="Durasi 10 menit tercapai.")
+            return
+
+
+async def start_podcast(pid: str, client_id: str, ws, topic: str, host_voice: str,
+                        guest_voice: str, max_minutes: float = 10.0,
+                        enable_search: bool = False) -> PodcastSession:
+    host_keys = keys_for_slot("host")
+    guest_keys = keys_for_slot("guest")
+    if not host_keys or not guest_keys:
+        raise RuntimeError("Set GEMINI_API_KEY_HOST dan GEMINI_API_KEY_GUEST di .env.")
+    pod = PodcastSession(pid=pid, topic=topic, client_id=client_id, ws=ws,
+                         host_voice=host_voice, guest_voice=guest_voice,
+                         max_minutes=max_minutes, enable_search=enable_search)
+    PODCASTS[pid] = pod
+
+    last_err = None
+    for hk in host_keys:
+        for gk in guest_keys:
+            try:
+                h_client = genai.Client(api_key=hk)
+                g_client = genai.Client(api_key=gk)
+                h_cfg = build_config(enable_search, HANDLES.get(f"{client_id}:host"), host_voice, "host")
+                g_cfg = build_config(False, HANDLES.get(f"{client_id}:guest"), guest_voice, "guest")
+                h_ctx = h_client.aio.live.connect(model=LIVE_MODEL, config=h_cfg)
+                g_ctx = g_client.aio.live.connect(model=LIVE_MODEL, config=g_cfg)
+                h_sess = await h_ctx.__aenter__()
+                try:
+                    g_sess = await g_ctx.__aenter__()
+                except Exception:
+                    await h_ctx.__aexit__(None, None, None)
+                    raise
+                pod.running = True
+                pod.t0 = time.time()
+                sessions = {"host": h_sess, "guest": g_sess}
+                pod._ctxs = (h_ctx, g_ctx)
+                pod._sessions = sessions
+                # konteks topik ke dua agen
+                intro = f"Topik podcast: {topic}. Host pria buka dulu 2-3 kalimat, lalu guest wanita menanggapi. Bergantian."
+                await h_sess.send_client_content(turns={"parts": [{"text": intro}]})
+                await g_sess.send_client_content(
+                    turns={"parts": [{"text": intro + " Tunggu host bicara dulu."}]},
+                    turn_complete=False,
+                )
+                pod._tasks = [
+                    asyncio.create_task(_pump(pod, "host", h_sess, sessions)),
+                    asyncio.create_task(_pump(pod, "guest", g_sess, sessions)),
+                    asyncio.create_task(_timer(pod, sessions)),
+                ]
+                await _send(ws, {"type": "podcast_started", "pid": pid, "topic": topic})
+                return pod
+            except Exception as e:
+                last_err = e
+                if not is_quota_error(e):
+                    break
+        if last_err is not None and not is_quota_error(last_err):
+            break
+    PODCASTS.pop(pid, None)
+    raise RuntimeError(f"Gagal buka sesi podcast: {last_err}")
+
+
+async def stop_podcast(pid: str, reason: str = "Podcast dihentikan."):
+    pod = PODCASTS.get(pid)
+    if not pod:
+        return None
+    pod.running = False
+    for t in pod._tasks:
+        t.cancel()
+    try:
+        h_ctx, g_ctx = pod._ctxs
+        await h_ctx.__aexit__(None, None, None)
+        await g_ctx.__aexit__(None, None, None)
+    except Exception:
+        pass
+    await _send(pod.ws, {"type": "podcast_stopped", "pid": pid, "text": reason})
+    return pod
+
+
+def render_export(pod: PodcastSession) -> str:
+    """Render MP4 server-side: wav campur + frame PIL + ffmpeg mux. Return path."""
+    out_mp4 = os.path.join(EXPORT_DIR, f"{pod.pid}.mp4")
+    wav_path = os.path.join(EXPORT_DIR, f"{pod.pid}.wav")
+    mix_wav(wav_path, bytes(pod.host_pcm), pod.guest_segs)
+    # durasi dari wav
+    import wave as wv
+    with wv.open(wav_path, "rb") as w:
+        frames = w.getnframes()
+        rate = w.getframerate()
+        dur = frames / float(rate)
+    dur = max(dur, 1.0)
+    W, H = 1280, 720
+    fps = 10
+    n = int(dur * fps)
+    frames_dir = os.path.join(EXPORT_DIR, f"{pod.pid}_frames")
+    os.makedirs(frames_dir, exist_ok=True)
+    font = None
+    if HAS_PIL:
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
+            small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 26)
+        except Exception:
+            font = ImageFont.load_default()
+            small = font
+    # subtitle lookup
+    def sub_at(t: float) -> str:
+        for seg in pod.timeline:
+            if seg["t0"] <= t <= seg["t1"] + 0.5 and seg["text"]:
+                who = "HOST" if seg["avatar"] == "host" else "GUEST"
+                return f"{who}: {seg['text'][:120]}"
+        return pod.topic[:120]
+    # speaker aktif lookup
+    def active_at(t: float) -> str:
+        for seg in pod.timeline:
+            if seg["t0"] <= t <= seg["t1"]:
+                return seg["avatar"]
+        return "host" if int(t) % 2 == 0 else "guest"
+    for i in range(n):
+        t = i / fps
+        act = active_at(t)
+        img = Image.new("RGB", (W, H), (11, 18, 32))
+        d = ImageDraw.Draw(img)
+        # dua panel avatar netral modern
+        for idx, (name, col, hi) in enumerate([
+            ("HOST", (56, 189, 248), act == "host"),
+            ("GUEST", (244, 114, 182), act == "guest"),
+        ]):
+            x0 = 60 + idx * 610
+            y0 = 90
+            bw, bh = 560, 420
+            d.rounded_rectangle([x0, y0, x0 + bw, y0 + bh], 24, fill=(22, 33, 58),
+                                outline=col if hi else (51, 65, 85), width=4 if hi else 2)
+            # kepala
+            cx, cy = x0 + bw // 2, y0 + 170
+            skin = (245, 195, 150) if idx == 0 else (240, 190, 150)
+            d.ellipse([cx - 70, cy - 80, cx + 70, cy + 80], fill=skin)
+            if idx == 0:
+                # rambut pendek pria modern
+                d.arc([cx - 70, cy - 95, cx + 70, cy + 20], 180, 360, fill=(30, 30, 35), width=22)
+                d.rectangle([cx - 70, cy + 60, cx + 70, cy + 200], fill=(30, 58, 95))
+            else:
+                # rambut panjang wanita modern
+                d.ellipse([cx - 85, cy - 95, cx + 85, cy + 60], fill=(90, 50, 30))
+                d.ellipse([cx - 70, cy - 80, cx + 70, cy + 80], fill=skin)
+                d.rectangle([cx - 80, cy + 60, cx + 80, cy + 200], fill=(120, 40, 70))
+            # mata + mulut bicara bila aktif
+            d.ellipse([cx - 35, cy - 15, cx - 15, cy + 5], fill=(20, 20, 20))
+            d.ellipse([cx + 15, cy - 15, cx + 35, cy + 5], fill=(20, 20, 20))
+            mh = 22 if hi else 6
+            d.ellipse([cx - 18, cy + 35, cx + 18, cy + 35 + mh], fill=(127, 29, 29))
+            d.text((x0 + 24, y0 + 16), name, fill=col, font=font)
+        # subtitle bawah
+        d.rounded_rectangle([60, 540, 1220, 660], 16, fill=(2, 6, 23))
+        d.text((90, 565), sub_at(t), fill=(226, 232, 240), font=small)
+        img.save(os.path.join(frames_dir, f"f{i:05d}.png"))
+    cmd = ["ffmpeg", "-y", "-framerate", str(fps), "-i", os.path.join(frames_dir, "f%05d.png"),
+           "-i", wav_path, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+           "-shortest", out_mp4]
+    subprocess.run(cmd, check=True, capture_output=True)
+    return out_mp4

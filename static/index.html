@@ -3,26 +3,49 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Gemini Live Chat</title>
+<title>Gemini Live + Podcast</title>
 <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>Gemini Live Chat</h1>
+    <h1>Gemini Live + Podcast</h1>
     <p id="status">Menghubungkan...</p>
   </header>
 
   <nav id="tabs">
-    <button id="tabAvatar" class="tab">Avatar</button>
+    <button id="tabAvatar" class="tab">Live</button>
+    <button id="tabPodcast" class="tab">Podcast</button>
     <button id="tabText" class="tab">Teks</button>
   </nav>
 
   <section id="avatarPanel">
-    <canvas id="avatar" width="440" height="520" aria-label="Avatar santri"></canvas>
+    <canvas id="avatar" width="440" height="520" aria-label="Avatar"></canvas>
     <div class="avatar-meta">
       <span id="avatarState">Santai</span>
       <label class="search"><input type="checkbox" id="avatarToggle" checked /> Avatar</label>
+    </div>
+  </section>
+
+  <section id="podcastPanel" hidden>
+    <div class="pod-head">
+      <input id="topic" type="text" placeholder="Topik podcast..." />
+      <select id="hostVoice"></select>
+      <select id="guestVoice"></select>
+      <button id="podStart">Mulai</button>
+      <button id="podStop" disabled>Stop</button>
+      <a id="podExport" hidden>Unduh MP4</a>
+    </div>
+    <div class="pod-timer"><span id="podClock">10:00</span> <span id="podSpeaker">siap</span></div>
+    <div class="pod-stage">
+      <div class="pod-card" id="cardHost">
+        <canvas id="hostCanvas" width="440" height="520"></canvas>
+        <div class="pod-name">HOST</div>
+      </div>
+      <div class="pod-card" id="cardGuest">
+        <canvas id="guestCanvas" width="440" height="520"></canvas>
+        <div class="pod-name">GUEST</div>
+      </div>
     </div>
   </section>
 
@@ -34,16 +57,7 @@
       <button id="stopBtn" disabled>Hentikan Audio</button>
       <label class="search"><input type="checkbox" id="searchBox" /> Search</label>
       <label class="search">Suara:
-        <select id="voiceBox">
-          <option value="Charon">Charon (pria)</option>
-          <option value="Puck">Puck (pria)</option>
-          <option value="Fenrir">Fenrir (pria)</option>
-          <option value="Orus">Orus (pria)</option>
-          <option value="Algenib">Algenib (pria)</option>
-          <option value="Rasalgethi">Rasalgethi (pria)</option>
-          <option value="Gacrux">Gacrux (pria)</option>
-          <option value="Sadaltager">Sadaltager (pria)</option>
-        </select>
+        <select id="voiceBox"></select>
       </label>
     </div>
     <form id="form">
@@ -53,5 +67,6 @@
   </footer>
 </div>
 <script src="/static/app.js"></script>
+<script src="/static/podcast.js"></script>
 </body>
 </html>
