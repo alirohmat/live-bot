@@ -17,17 +17,27 @@ const STATIC_DIR = path.join(__dirname, "static");
 // Model configuration
 const LIVE_MODEL_PRIMARY = "gemini-2.5-flash-native-audio-preview-12-2025";
 const LIVE_MODEL_FALLBACK = "gemini-3.8-live";
-const TEXT_MODEL = "gemini-3.8-flash";
+const TEXT_MODEL = "gemini-3.1-flash-lite";
+const TEXT_MODEL_FALLBACK = "gemini-3.8-flash";
 const TTS_MODEL = "gemini-3.1-flash-tts-preview";
 
 function getApiKey(slot: "host" | "guest" | "single"): string {
-  if (slot === "host") {
-    return process.env.GEMINI_API_KEY_HOST || process.env.GEMINI_API_KEY || "";
+  const isRealKey = (k: string | undefined): boolean => {
+    if (!k) return false;
+    const trimmed = k.trim();
+    return trimmed.length > 25 && !trimmed.startsWith("your-") && !trimmed.includes("placeholder");
+  };
+
+  if (slot === "host" && isRealKey(process.env.GEMINI_API_KEY_HOST)) {
+    return process.env.GEMINI_API_KEY_HOST!.trim();
   }
-  if (slot === "guest") {
-    return process.env.GEMINI_API_KEY_GUEST || process.env.GEMINI_API_KEY || "";
+  if (slot === "guest" && isRealKey(process.env.GEMINI_API_KEY_GUEST)) {
+    return process.env.GEMINI_API_KEY_GUEST!.trim();
   }
-  return process.env.GEMINI_API_KEY || "";
+  if (isRealKey(process.env.GEMINI_API_KEY)) {
+    return process.env.GEMINI_API_KEY!.trim();
+  }
+  return (process.env.GEMINI_API_KEY || "").trim();
 }
 
 function createGenAI(slot: "host" | "guest" | "single" = "single"): GoogleGenAI | null {
@@ -154,88 +164,6 @@ async function runPodcastLoop(session: PodcastSession) {
   const startTime = Date.now();
   const maxDurationMs = session.maxMinutes * 60 * 1000;
 
-  // Let's try native Live audio first
-  let useLiveApi = true;
-  let hostLiveSession: any = null;
-  let guestLiveSession: any = null;
-
-  try {
-    const hostSys = `Kamu adalah Host podcast pria berbahasa Indonesia bernama Rama.
-Bicara hangat, santai, berwawasan luas, dan alami layaknya podcast populer.
-Pandu alur obrolan dengan antusias, sambut guest wanita (Maya), dan lemparkan pertanyaan atau pandangan menarik.
-Jawab dan bicara dalam 2-4 kalimat setiap giliran.`;
-
-    const guestSys = `Kamu adalah Guest podcast wanita berbahasa Indonesia bernama Maya.
-Bicara ramah, santai, cerdas, artikulatif, dan penuh wawasan.
-Tanggapi pertanyaan atau sudut pandang host (Rama), tambahkan opini atau fakta menarik, lalu lempar balik obrolan ke Rama.
-Jawab dan bicara dalam 2-4 kalimat setiap giliran.`;
-
-    // Try connecting Live API for Host
-    try {
-      hostLiveSession = await (hostAi as any).live?.connect({
-        model: LIVE_MODEL_PRIMARY,
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: session.hostVoice } },
-          },
-          systemInstruction: hostSys,
-          outputAudioTranscription: {},
-        },
-      });
-    } catch (e1) {
-      // Try fallback live model
-      try {
-        hostLiveSession = await (hostAi as any).live?.connect({
-          model: LIVE_MODEL_FALLBACK,
-          config: {
-            responseModalities: [Modality.AUDIO],
-            speechConfig: {
-              voiceConfig: { prebuiltVoiceConfig: { voiceName: session.hostVoice } },
-            },
-            systemInstruction: hostSys,
-            outputAudioTranscription: {},
-          },
-        });
-      } catch (e2) {
-        useLiveApi = false;
-      }
-    }
-
-    if (hostLiveSession) {
-      try {
-        guestLiveSession = await (guestAi as any).live?.connect({
-          model: LIVE_MODEL_PRIMARY,
-          config: {
-            responseModalities: [Modality.AUDIO],
-            speechConfig: {
-              voiceConfig: { prebuiltVoiceConfig: { voiceName: session.guestVoice } },
-            },
-            systemInstruction: guestSys,
-            outputAudioTranscription: {},
-          },
-        });
-      } catch {
-        try {
-          guestLiveSession = await (guestAi as any).live?.connect({
-            model: LIVE_MODEL_FALLBACK,
-            config: {
-              responseModalities: [Modality.AUDIO],
-              speechConfig: {
-                voiceConfig: { prebuiltVoiceConfig: { voiceName: session.guestVoice } },
-              },
-              systemInstruction: guestSys,
-              outputAudioTranscription: {},
-            },
-          });
-        } catch {
-          useLiveApi = false;
-        }
-      }
-    }
-  } catch {
-    useLiveApi = false;
-  }
 
   // Podcast Dialogue Engine (supporting both Live streaming & Robust Turn-by-Turn with TTS)
   while (session.running && !session.stopRequested) {
@@ -268,7 +196,7 @@ Jawab dan bicara dalam 2-4 kalimat setiap giliran.`;
     let prompt = "";
     if (session.turns === 0) {
       prompt = `Topik podcast hari ini: "${session.topic}".
-Kamu adalah Host pria (Rama). Sapa pendengar dengan hangat dan ceria, perkenalkan topik podcast secara menarik dan singkat, lalu perkenalkan serta sambut bintang tamu kita, Maya. Berbicaralah santai dalam 2-3 kalimat.`;
+Kamu adalah Host pria (Rama). Sapa pendengar singkat, perkenalkan topik dalam 1 kalimat, lalu langsung sapa dan tanyakan pendapat bintang tamu kita, Maya. Jawab maksimal 2 kalimat santai (maksimal 30 kata).`;
     } else {
       const recentHistory = session.history.slice(-6);
       const lastMessage = recentHistory[recentHistory.length - 1];
@@ -277,55 +205,68 @@ Kamu adalah Host pria (Rama). Sapa pendengar dengan hangat dan ceria, perkenalka
 
       prompt = `Topik podcast: "${session.topic}".
 Kamu adalah ${myName}. Lawan bicaramu ${otherSpeakerName} baru saja berkata:
-"${lastMessage.text}"
+"${lastMessage ? lastMessage.text : session.topic}"
 
-Tanggapi perkataan tersebut secara alami, menarik, cerdas, dan santai (2-3 kalimat). Teruskan alur dialog dengan hangat.`;
+Tanggapi secara langsung, cerdas, dan santai dalam 2 kalimat (maksimal 30 kata), lalu lempar balik obrolan ke ${otherSpeakerName}.`;
     }
 
     try {
       // Step 1: Generate text response (Streamed to client for instant avatar reaction)
       let turnText = "";
       const searchTools = session.enableSearch ? [{ googleSearch: {} }] : undefined;
-      const streamResponse = await currentAi.models.generateContentStream({
-        model: TEXT_MODEL,
-        contents: prompt,
-        config: {
-          systemInstruction: isHost
-            ? "Kamu adalah Rama, host podcast pria Indonesia yang hangat, bersahabat, cerdas, dan komunikatif. Jawab hanya teks percakapan tanpa tanda kurung deskripsi atau nama pembicara."
-            : "Kamu adalah Maya, guest podcast wanita Indonesia yang ramah, santai, berwawasan luas, dan artikulatif. Jawab hanya teks percakapan tanpa tanda kurung deskripsi atau nama pembicara.",
-          temperature: 0.85,
-          tools: searchTools,
-        },
-      });
+
+      const hostSys = "Kamu Rama, host podcast pria Indonesia yang hangat, bersahabat, dan ringkas. Bicara santai maksimal 2 kalimat (maksimal 30 kata). Jangan tulis tanda kurung atau nama pembicara.";
+      const guestSys = "Kamu Maya, guest podcast wanita Indonesia yang ramah, santai, cerdas, dan ekspresif. Bicara santai maksimal 2 kalimat (maksimal 30 kata). Jangan tulis tanda kurung atau nama pembicara.";
 
       const collectedSources: Array<{ title: string; url: string }> = [];
 
-      for await (const chunk of streamResponse) {
-        if (!session.running || session.stopRequested) break;
-        const textChunk = chunk.text || "";
-        if (textChunk) {
-          turnText += textChunk;
-          session.clientWs.send(
-            JSON.stringify({
-              type: "transcript_out",
-              avatar: currentSpeaker,
-              text: textChunk,
-            })
-          );
-        }
-
-        // Collect grounding metadata from Google Search
-        const candidates = (chunk as any).candidates;
-        const grounding = candidates?.[0]?.groundingMetadata;
-        if (grounding?.groundingChunks) {
-          for (const gc of grounding.groundingChunks) {
-            if (gc.web?.uri) {
-              collectedSources.push({
-                title: gc.web.title || gc.web.uri,
-                url: gc.web.uri,
-              });
+      const tryStream = async (modelName: string) => {
+        const stream = await currentAi.models.generateContentStream({
+          model: modelName,
+          contents: prompt,
+          config: {
+            systemInstruction: isHost ? hostSys : guestSys,
+            temperature: 0.85,
+            tools: searchTools,
+          },
+        });
+        for await (const chunk of stream) {
+          if (!session.running || session.stopRequested) break;
+          const textChunk = chunk.text || "";
+          if (textChunk) {
+            turnText += textChunk;
+            session.clientWs.send(
+              JSON.stringify({
+                type: "transcript_out",
+                avatar: currentSpeaker,
+                text: textChunk,
+              })
+            );
+          }
+          const candidates = (chunk as any).candidates;
+          const grounding = candidates?.[0]?.groundingMetadata;
+          if (grounding?.groundingChunks) {
+            for (const gc of grounding.groundingChunks) {
+              if (gc.web?.uri) {
+                collectedSources.push({
+                  title: gc.web.title || gc.web.uri,
+                  url: gc.web.uri,
+                });
+              }
             }
           }
+        }
+      };
+
+      try {
+        await tryStream(TEXT_MODEL);
+      } catch (err1: any) {
+        console.warn(`Primary model ${TEXT_MODEL} failed, retrying with ${TEXT_MODEL_FALLBACK}:`, err1?.message || err1);
+        turnText = "";
+        try {
+          await tryStream(TEXT_MODEL_FALLBACK);
+        } catch (err2: any) {
+          console.warn(`Fallback model ${TEXT_MODEL_FALLBACK} also failed:`, err2?.message || err2);
         }
       }
 
@@ -369,14 +310,6 @@ Tanggapi perkataan tersebut secara alami, menarik, cerdas, dan santai (2-3 kalim
         );
       }
 
-      // Step 3: Turn Complete notification
-      session.clientWs.send(
-        JSON.stringify({
-          type: "turn_complete",
-          avatar: currentSpeaker,
-        })
-      );
-
       session.turns += 1;
 
       // Estimate audio duration so turns don't collide
@@ -389,16 +322,27 @@ Tanggapi perkataan tersebut secara alami, menarik, cerdas, dan santai (2-3 kalim
         estimatedDurationMs = Math.min(8000, Math.max(2500, turnText.length * 70));
       }
 
-      // Switch turn to the other avatar
-      session.speaker = isHost ? "guest" : "host";
-
-      // Wait for audio playback to finish comfortably before the next turn speaks
+      // Wait for audio playback to finish comfortably before turn_complete
       const waitInterval = 100;
       let waited = 0;
       while (waited < estimatedDurationMs && session.running && !session.stopRequested) {
         await new Promise((r) => setTimeout(r, waitInterval));
         waited += waitInterval;
       }
+
+      // Step 3: Send turn_complete ONLY AFTER audio has finished playing
+      session.clientWs.send(
+        JSON.stringify({
+          type: "turn_complete",
+          avatar: currentSpeaker,
+        })
+      );
+
+      // Switch turn to the other avatar
+      session.speaker = isHost ? "guest" : "host";
+
+      // Brief conversational breath pause (400ms)
+      await new Promise((r) => setTimeout(r, 400));
     } catch (turnErr: any) {
       console.error("Turn error in podcast loop:", turnErr);
       session.clientWs.send(
@@ -407,17 +351,10 @@ Tanggapi perkataan tersebut secara alami, menarik, cerdas, dan santai (2-3 kalim
           text: `Dialog ${currentSpeaker}: ${turnErr.message || turnErr}`,
         })
       );
-      // Wait a bit and try next turn
+      // Guarantee speaker advances so the session never gets stuck on one speaker
+      session.speaker = isHost ? "guest" : "host";
       await new Promise((r) => setTimeout(r, 2000));
     }
-  }
-
-  // Cleanup sessions
-  if (hostLiveSession?.close) {
-    try { hostLiveSession.close(); } catch {}
-  }
-  if (guestLiveSession?.close) {
-    try { guestLiveSession.close(); } catch {}
   }
 
   session.running = false;

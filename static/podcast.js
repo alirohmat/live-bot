@@ -461,11 +461,13 @@ function drawPodAvatar(canvas, st, female, now) {
   const meterFill = female ? guestMeterFill : hostMeterFill;
 
   if (card) {
-    card.classList.toggle("speaking", speaking);
+    const isPreparing = st.mode === "speaking" && !speaking;
+    card.classList.toggle("speaking", speaking || isPreparing);
     card.classList.toggle("listening", isListening);
   }
   if (statusPillText) {
-    statusPillText.textContent = speaking ? "ON AIR" : isListening ? "Mendengarkan" : "Standby";
+    const isPreparing = st.mode === "speaking" && !speaking;
+    statusPillText.textContent = speaking ? "ON AIR" : isPreparing ? "Menanggapi..." : isListening ? "Mendengarkan" : "Standby";
   }
   if (meterFill) {
     meterFill.style.width = Math.min(100, Math.round(st.mouth * 135)) + "%";
@@ -529,6 +531,12 @@ function playPodAudio(b64, role) {
   st.level = Math.min(1, rms * 4);
   st.speakingUntil = (now + out.duration) * 1000;
   setPodSpeaker(role);
+
+  src.onended = () => {
+    st.level = 0;
+    st.mouth = 0;
+    st.speakingUntil = 0;
+  };
 }
 
 /* Real-Time Subtitle Streamer & Transcript */
@@ -639,7 +647,13 @@ if (podStart) podStart.addEventListener("click", () => {
     }
     else if (pkt.type === "turn_complete" && pkt.avatar) {
       podLines[pkt.avatar] = null;
-      setPodSpeaker(pkt.avatar === "host" ? "guest" : "host");
+      const nextSpeaker = pkt.avatar === "host" ? "guest" : "host";
+      setPodSpeaker(nextSpeaker);
+      if (statusEl) {
+        statusEl.textContent = nextSpeaker === "guest"
+          ? "Giliran Maya (Guest) merespons..."
+          : "Giliran Rama (Host) merespons...";
+      }
     }
     else if (pkt.type === "podcast_stopped") {
       statusEl.textContent = pkt.text || "Podcast selesai.";
